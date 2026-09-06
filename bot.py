@@ -6,7 +6,7 @@ API_ID = 29834234
 API_HASH = "552c01d21d127def060f2915aedeebf9"
 
 TARGET_USERNAME = "Moein_915"
-NEW_FIRST_NAME = "NewName"
+NEW_FIRST_NAME = "کیر تو کونم"
 
 client = TelegramClient("my_account", API_ID, API_HASH)
 
