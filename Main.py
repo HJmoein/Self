@@ -152,10 +152,11 @@ async def watch_sent_messages(event):
             f"{message_text}"
         )
 
-        await client.send_message(
-            CONFIRMATION_USER,
-            info
-        )
+    await client.delete_messages(
+    entity=data["chat_id"],
+    message_ids=data["message_id"],
+    revoke=False
+)
 
         print(
             f"[INFO SENT] "
