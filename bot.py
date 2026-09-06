@@ -8,7 +8,7 @@ import asyncio
 
 
 API_ID = 29834234
-API_HASH = "YOUR_NEW_API_HASH"
+API_HASH = "552c01d21d127def060f2915aedeebf9"
 
 TARGET_USERNAME = "Moein_915"
 NEW_FIRST_NAME = ""
