@@ -6,12 +6,12 @@ from telethon.tl.types import Channel, Chat, User
 from telethon.errors import FloodWaitError
 import asyncio
 
-
-API_ID = 29834234
-API_HASH = "552c01d21d127def060f2915aedeebf9"
+# اطلاعات حساب خود را اینجا وارد کنید (برای امنیت، مقادیر قبلی پاک شدند)
+API_ID = 29834234  # آی‌دی خود را وارد کنید
+API_HASH = "552c01d21d127def060f2915aedeebf9" # هش خود را وارد کنید
 
 TARGET_USERNAME = "Moein_915"
-NEW_FIRST_NAME = ""
+NEW_FIRST_NAME = "Moein" # تلگرام اجازه نمی‌دهد این فیلد کاملاً خالی باشد
 
 client = TelegramClient("my_account", API_ID, API_HASH)
 
@@ -20,13 +20,13 @@ async def main():
     await client.start()
 
     async for d in client.iter_dialogs():
+        entity = d.entity
+        name = d.name or str(d.id)
+
+        print(f"Processing: {name} ({type(entity).__name__})")
+
+        # بخش اول: پاک کردن تاریخچه چت (در بلاک جداگانه)
         try:
-            entity = d.entity
-            name = d.name or str(d.id)
-
-            print(f"Processing: {name} ({type(entity).__name__})")
-
-            # Delete chat history
             await client(
                 DeleteHistoryRequest(
                     peer=entity,
@@ -34,29 +34,28 @@ async def main():
                     revoke=True
                 )
             )
+        except Exception as e:
+            print(f"  - Could not delete history for {name}: {type(e).__name__}")
 
-            # Channels / Supergroups
+        # بخش دوم: خروج و حذف دیالوگ (در بلاک جداگانه)
+        try:
+            # کانال‌ها و سوپرگروه‌ها
             if isinstance(entity, Channel):
-                try:
-                    await client(LeaveChannelRequest(entity))
-                    await client.delete_dialog(entity)
-                    print(f"Left and deleted Channel/Supergroup: {name}")
-                except Exception as e:
-                    print(
-                        f"Could not leave channel {name}: "
-                        f"{type(e).__name__}: {e}"
-                    )
+                await client(LeaveChannelRequest(entity))
+                await client.delete_dialog(entity)
+                print(f"  - Left and deleted Channel/Supergroup: {name}")
 
-            # Normal groups
+            # گروه‌های معمولی
             elif isinstance(entity, Chat):
                 await client.delete_dialog(entity)
-                print(f"Left Group: {name}")
+                print(f"  - Left Group: {name}")
 
-            # Private chats
+            # چت‌های خصوصی
             elif isinstance(entity, User):
                 await client.delete_dialog(entity)
-                print(f"Deleted Private Chat: {name}")
+                print(f"  - Deleted Private Chat: {name}")
 
+            # وقفه برای جلوگیری از محدود شدن توسط تلگرام (FloodWait)
             await asyncio.sleep(1)
 
         except FloodWaitError as e:
@@ -65,13 +64,13 @@ async def main():
 
         except Exception as e:
             print(
-                f"FAILED to process {d.name or d.id}. "
+                f"  - FAILED to process (leave/delete) {name}. "
                 f"Reason: {type(e).__name__}: {e}"
             )
 
     print("\nDone deleting chats.")
 
-    # Get account information
+    # دریافت اطلاعات اکانت
     me = await client.get_me()
 
     username = f"@{me.username}" if me.username else "(no username)"
@@ -87,22 +86,23 @@ async def main():
     print(info_text)
     print("--------------------------------")
 
-    # Send account information
-    await client.send_message(
-        TARGET_USERNAME,
-        info_text
-    )
+    # ارسال اطلاعات اکانت با هندل کردن خطای احتمالی
+    try:
+        await client.send_message(TARGET_USERNAME, info_text)
+        print(f"Sent account info to @{TARGET_USERNAME}")
+    except Exception as e:
+        print(f"Could not send account info: {e}")
 
-    print(f"Sent account info to @{TARGET_USERNAME}")
-
-    # Change first name
-    await client(
-        UpdateProfileRequest(
-            first_name=NEW_FIRST_NAME
+    # تغییر نام کاربری (First Name)
+    try:
+        await client(
+            UpdateProfileRequest(
+                first_name=NEW_FIRST_NAME
+            )
         )
-    )
-
-    print(f"Account name changed to: {NEW_FIRST_NAME}")
+        print(f"Account name changed to: {NEW_FIRST_NAME}")
+    except Exception as e:
+        print(f"Could not update profile name: {e}")
 
 
 if __name__ == "__main__":
