@@ -1,11 +1,11 @@
 import asyncio
-from telethon import TelegramClient
+from telethon import TelegramClient, functions
 from telethon.tl.types import User, Chat, Channel
 
-API_ID =29834234‎
-API_HASH ="552c01d21d127def060f2915aedeebf9"
+api_id = 29834234
+api_hash = "552c01d21d127def060f2915aedeebf9"
 
-client = TelegramClient("cleanup_session", API_ID, API_HASH)
+client = TelegramClient("cleanup_session", api_id, api_hash)
 
 
 async def main():
@@ -15,39 +15,52 @@ async def main():
     print(f"Logged in as: {me.first_name}")
 
     dialogs = await client.get_dialogs()
-    total = len(dialogs)
+
+    print(f"\nFound {len(dialogs)} dialogs.")
+
     done = 0
 
     for dialog in dialogs:
         try:
             entity = dialog.entity
 
-            # Saved Messages
-            if isinstance(entity, User) and entity.id == me.id:
-                await client.delete_dialog(entity)
-                name = "Saved Messages"
+            if isinstance(entity, User):
+                name = (
+                    getattr(entity, "first_name", None)
+                    or dialog.name
+                    or "Private chat"
+                )
 
-            # Private chats / bots
-            elif isinstance(entity, User):
-                await client.delete_dialog(entity)
-                name = getattr(entity, "first_name", "Private chat")
-
-            # Groups / channels
             elif isinstance(entity, (Chat, Channel)):
-                await client.delete_dialog(entity)
-                name = getattr(entity, "title", "Group/Channel")
+                name = (
+                    getattr(entity, "title", None)
+                    or dialog.name
+                    or "Group/Channel"
+                )
 
             else:
                 continue
 
+            await client.delete_dialog(entity)
+
             done += 1
-            print(f"[{done}/{total}] Removed: {name}")
+            print(f"[{done}/{len(dialogs)}] Removed: {name}")
+
             await asyncio.sleep(0.3)
 
         except Exception as e:
             print(f"Failed: {dialog.name} -> {e}")
 
-    print("\nFinished.")
+    # Change profile name after processing is finished
+    try:
+        await client(functions.account.UpdateProfileRequest(
+            first_name="کیر شدم"
+        ))
+        print("Profile name changed to:کیر شدم")
+    except Exception as e:
+        print(f"Failed to change profile name: {e}")
+
+    print(f"\nFinished. Removed: {done}")
 
 
 with client:
