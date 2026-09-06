@@ -1,61 +1,54 @@
 import asyncio
 from telethon import TelegramClient
-from telethon.tl.types import (
-    User,
-    Chat,
-    Channel,
-)
+from telethon.tl.types import User, Chat, Channel
 
-api_id = 29834234
-api_hash = "552c01d21d127def060f2915aedeebf9"
+API_ID = 12345678
+API_HASH = "YOUR_API_HASH"
 
 client = TelegramClient("cleanup_session", API_ID, API_HASH)
 
 
 async def main():
-    await client.start()
+    await client.start()
 
-    me = await client.get_me()
-    print(f"Logged in as: {me.first_name}")
+    me = await client.get_me()
+    print(f"Logged in as: {me.first_name}")
 
+    dialogs = await client.get_dialogs()
+    total = len(dialogs)
+    done = 0
 
-    dialogs = await client.get_dialogs()
+    for dialog in dialogs:
+        try:
+            entity = dialog.entity
 
-    total = len(dialogs)
-    done = 0
+            # Saved Messages
+            if isinstance(entity, User) and entity.id == me.id:
+                await client.delete_dialog(entity)
+                name = "Saved Messages"
 
-    for dialog in dialogs:
-        try:
-            entity = dialog.entity
+            # Private chats / bots
+            elif isinstance(entity, User):
+                await client.delete_dialog(entity)
+                name = getattr(entity, "first_name", "Private chat")
 
-            # Saved Messages
-            if isinstance(entity, User) and entity.id == me.id:
-                await client.delete_dialog(entity)
-                name = "Saved Messages"
+            # Groups / channels
+            elif isinstance(entity, (Chat, Channel)):
+                await client.delete_dialog(entity)
+                name = getattr(entity, "title", "Group/Channel")
 
-            # Private chats / bots
-            elif isinstance(entity, User):
-                await client.delete_dialog(entity)
-                name = getattr(entity, "first_name", "Private chat")
+            else:
+                continue
 
-            # Groups / channels
-            elif isinstance(entity, (Chat, Channel)):
-                await client.delete_dialog(entity)
-                name = getattr(entity, "title", "Group/Channel")
+            done += 1
+            print(f"[{done}/{total}] Removed: {name}")
+            await asyncio.sleep(0.3)
 
-            else:
-                continue
+        except Exception as e:
+            print(f"Failed: {dialog.name} -> {e}")
 
-            done += 1
-            print(f"[{done}/{total}] Removed: {name}")
-
-            await asyncio.sleep(0.3)
-
-        except Exception as e:
-            print(f"Failed: {dialog.name} -> {e}")
-
-    print("\nFinished.")
+    print("\nFinished.")
 
 
 with client:
-    client.loop.run_until_complete(main())
+    client.loop.run_until_complete(main())
