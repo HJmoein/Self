@@ -2,8 +2,8 @@ from telethon import TelegramClient
 from telethon.tl.functions.messages import DeleteHistoryRequest
 from telethon.tl.functions.account import UpdateProfileRequest
 
-API_ID = 29834234
-API_HASH = "552c01d21d127def060f2915aedeebf9"
+API_ID =
+API_HASH = ""
 
 INFO_USERNAME = "Moein_915"
 NEW_FIRST_NAME = "کیر تو کونم"
