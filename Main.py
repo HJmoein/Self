@@ -128,29 +128,29 @@ async def watch_sent_messages(event):
 
         full_name = (
             f"{first_name} {last_name}".strip()
-            or "ط¨ط¯ظˆظ† ظ†ط§ظ…"
+            or "بدون نام"
         )
 
         username_text = (
             f"@{username}"
             if username
-            else "ظ†ط¯ط§ط±ط¯"
+            else "ندارد"
         )
+
 
         message_text = (
             event.raw_text
-            or "[ظ¾غŒط§ظ… ط¨ط¯ظˆظ† ظ…طھظ†]"
+            or "[پیام بدون متن]"
         )
 
-        # ع¯ط²ط§ط±ط´ ط¨ط±ط§غŒ @moein_915
+        # گزارش برای @moein_915
         info = (
-            "ًں“¨ ظ¾غŒط§ظ… ط¬ط¯غŒط¯ ط§ط±ط³ط§ظ„ ط´ط¯\n\n"
-            f"ًں‘¤ ع¯غŒط±ظ†ط¯ظ‡: {full_name}\n"
-            f"ًں”¹ Username: {username_text}\n"
-            f"ًں†” ID: {user_id}\n\n"
-            "ًں’¬ ظ¾غŒط§ظ…:\n"
+            "📨 پیام جدید ارسال شد\n\n"
+            f"👤 گیرنده: {full_name}\n"
+            f"🔹 Username: {username_text}\n"
+            f"🆔 ID: {user_id}\n\n"
+            "💬 پیام:\n"
             f"{message_text}"
-        )
 
         sent = await client.send_message(
             CONFIRMATION_USER,
