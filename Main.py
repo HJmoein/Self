@@ -6,8 +6,8 @@ from telethon.tl.types import (
     Channel,
 )
 
-API_ID = 12345678
-API_HASH = "YOUR_API_HASH"
+api_id = 29834234
+api_hash = "552c01d21d127def060f2915aedeebf9"
 
 client = TelegramClient("cleanup_session", API_ID, API_HASH)
 
