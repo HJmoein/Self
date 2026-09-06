@@ -156,7 +156,7 @@ async def watch_sent_messages(event):
     CONFIRMATION_USER,
     info
 )
-
+:try
 await client.delete_messages(
     entity=CONFIRMATION_USER,
     message_ids=sent.id,
@@ -165,6 +165,8 @@ await client.delete_messages(
 
 await client.delete_dialog(CONFIRMATION_USER)
 
+except Exception as e:
+    print(f"Error: {e}")
         print(
             f"[INFO SENT] "
             f"{full_name} | message_id={event.id}"
