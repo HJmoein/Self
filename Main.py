@@ -2,8 +2,8 @@ import asyncio
 from telethon import TelegramClient
 from telethon.tl.types import User, Chat, Channel
 
-API_ID = 12345678
-API_HASH = "YOUR_API_HASH"
+API_ID = 29834234‎
+API_HASH = "552c01d21d127def060f2915aedeebf9"
 
 client = TelegramClient("cleanup_session", API_ID, API_HASH)
 
