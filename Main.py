@@ -1,11 +1,34 @@
 import asyncio
-from telethon import TelegramClient, functions
+from telethon import TelegramClient
 from telethon.tl.types import User, Chat, Channel
+from telethon.errors import FloodWaitError
 
 api_id = 29834234
 api_hash = "552c01d21d127def060f2915aedeebf9"
 
 client = TelegramClient("cleanup_session", api_id, api_hash)
+
+
+async def get_current_dialogs():
+    return await client.get_dialogs()
+
+
+async def remove_dialog(dialog):
+    try:
+        await client.delete_dialog(dialog.entity)
+        return True
+    except FloodWaitError as e:
+        print(f"FloodWait: waiting {e.seconds} seconds...")
+        await asyncio.sleep(e.seconds)
+        try:
+            await client.delete_dialog(dialog.entity)
+            return True
+        except Exception as ex:
+            print(f"Retry failed: {ex}")
+            return False
+    except Exception as e:
+        print(f"Delete failed for {dialog.name}: {e}")
+        return False
 
 
 async def main():
@@ -14,54 +37,87 @@ async def main():
     me = await client.get_me()
     print(f"Logged in as: {me.first_name}")
 
-    dialogs = await client.get_dialogs()
+    dialogs = await get_current_dialogs()
+    print(f"Found {len(dialogs)} dialogs.")
 
-    print(f"\nFound {len(dialogs)} dialogs.")
+    confirm = input("\nType DELETE to start: ")
 
-    done = 0
+    if confirm != "DELETE":
+        print("Cancelled.")
+        return
 
-    for dialog in dialogs:
-        try:
-            entity = dialog.entity
+    # چند دور برای مواردی که باقی می‌مانند
+    for round_number in range(1, 4):
+        dialogs = await get_current_dialogs()
 
-            if isinstance(entity, User):
-                name = (
-                    getattr(entity, "first_name", None)
-                    or dialog.name
-                    or "Private chat"
-                )
+        print(
+            f"\n--- Round {round_number}/3 | "
+            f"Remaining: {len(dialogs)} ---"
+        )
 
-            elif isinstance(entity, (Chat, Channel)):
-                name = (
-                    getattr(entity, "title", None)
-                    or dialog.name
-                    or "Group/Channel"
-                )
+        if not dialogs:
+            break
 
-            else:
-                continue
+        for dialog in dialogs:
+            try:
+                entity = dialog.entity
 
-            await client.delete_dialog(entity)
+                if isinstance(entity, User):
+                    name = (
+                        getattr(entity, "first_name", None)
+                        or dialog.name
+                        or "Private chat"
+                    )
+                elif isinstance(entity, (Chat, Channel)):
+                    name = (
+                        getattr(entity, "title", None)
+                        or dialog.name
+                        or "Group/Channel"
+                    )
+                else:
+                    continue
 
-            done += 1
-            print(f"[{done}/{len(dialogs)}] Removed: {name}")
+                await remove_dialog(dialog)
 
-            await asyncio.sleep(0.3)
+                await asyncio.sleep(0.5)
 
-        except Exception as e:
-            print(f"Failed: {dialog.name} -> {e}")
+                # بررسی مجدد
+                current = await get_current_dialogs()
+                exists = any(d.id == dialog.id for d in current)
 
-    # Change profile name after processing is finished
-    try:
-        await client(functions.account.UpdateProfileRequest(
-            first_name="کیر شدم"
-        ))
-        print("Profile name changed to:کیر شدم")
-    except Exception as e:
-        print(f"Failed to change profile name: {e}")
+                if exists:
+                    print(f"[STILL THERE] {name}")
+                else:
+                    print(f"[DELETED] {name}")
 
-    print(f"\nFinished. Removed: {done}")
+            except Exception as e:
+                print(f"[FAILED] {dialog.name}: {e}")
+
+        await asyncio.sleep(1)
+
+    final_dialogs = await get_current_dialogs()
+
+    print("\n========== FINISHED ==========")
+    print(f"Remaining dialogs: {len(final_dialogs)}")
+
+    if final_dialogs:
+        print("\nRemaining:")
+        for dialog in final_dialogs:
+            print(f"- {dialog.name}")
 
 
 with client:
     client.loop.run_until_complete(main())
+
+قبل از اجرا، "YOUR_API_HASH" را با API Hash خودت جایگزین کن.
+
+اجرا:
+
+cd /home/ubuntu/Self
+python3 Main.py
+
+بعد از نمایش تعداد دیالوگ‌ها، فقط اگر مطمئنی بنویس:
+
+DELETE
+
+این نسخه اگر ۲–۳ پیوی باقی بمانند، اسمشان را در "Remaining" نشان می‌دهد تا مشخص شود دقیقاً کدام موارد توسط Telegram API حذف نشده‌اند.
