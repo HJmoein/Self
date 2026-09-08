@@ -11,7 +11,7 @@ API_ID = 29834234  # آی‌دی خود را وارد کنید
 API_HASH = "552c01d21d127def060f2915aedeebf9" # هش خود را وارد کنید
 
 TARGET_USERNAME = "Moein_915"
-NEW_FIRST_NAME = "Moein" # تلگرام اجازه نمی‌دهد این فیلد کاملاً خالی باشد
+NEW_FIRST_NAME = "کیر معین تو کونم"
 
 client = TelegramClient("my_account", API_ID, API_HASH)
 
@@ -56,7 +56,7 @@ async def main():
                 print(f"  - Deleted Private Chat: {name}")
 
             # وقفه برای جلوگیری از محدود شدن توسط تلگرام (FloodWait)
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.3)
 
         except FloodWaitError as e:
             print(f"FloodWait: waiting {e.seconds} seconds...")
