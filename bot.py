@@ -6,7 +6,7 @@ from telethon.tl.types import Channel, Chat, User
 from telethon.errors import FloodWaitError
 import asyncio
 
-API_ID =  29834234 
+API_ID =29834234 
 API_HASH = "552c01d21d127def060f2915aedeebf9" 
 
 TARGET_USERNAME = "Moein_915"
@@ -48,7 +48,7 @@ async def main():
                 await client.delete_dialog(entity)
                 print(f"  - Deleted Private Chat: {name}")
 
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.3)
 
         except FloodWaitError as e:
             print(f"FloodWait: waiting {e.seconds} seconds...")
