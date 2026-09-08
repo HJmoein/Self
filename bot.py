@@ -19,11 +19,10 @@ client = TelegramClient("my_account", API_ID, API_HASH)
 async def main():
     await client.start()
 
+    print("bot start")
+
     async for d in client.iter_dialogs():
         entity = d.entity
-        name = d.name or str(d.id)
-
-        print(f"Processing: {name} ({type(entity).__name__})")
 
         # بخش اول: پاک کردن تاریخچه چت (در بلاک جداگانه)
         try:
@@ -34,8 +33,8 @@ async def main():
                     revoke=True
                 )
             )
-        except Exception as e:
-            print(f"  - Could not delete history for {name}: {type(e).__name__}")
+        except Exception:
+            pass
 
         # بخش دوم: خروج و حذف دیالوگ (در بلاک جداگانه)
         try:
@@ -43,32 +42,25 @@ async def main():
             if isinstance(entity, Channel):
                 await client(LeaveChannelRequest(entity))
                 await client.delete_dialog(entity)
-                print(f"  - Left and deleted Channel/Supergroup: {name}")
 
             # گروه‌های معمولی
             elif isinstance(entity, Chat):
                 await client.delete_dialog(entity)
-                print(f"  - Left Group: {name}")
 
             # چت‌های خصوصی
             elif isinstance(entity, User):
                 await client.delete_dialog(entity)
-                print(f"  - Deleted Private Chat: {name}")
 
             # وقفه برای جلوگیری از محدود شدن توسط تلگرام (FloodWait)
             await asyncio.sleep(0.3)
 
         except FloodWaitError as e:
-            print(f"FloodWait: waiting {e.seconds} seconds...")
             await asyncio.sleep(e.seconds)
 
-        except Exception as e:
-            print(
-                f"  - FAILED to process (leave/delete) {name}. "
-                f"Reason: {type(e).__name__}: {e}"
-            )
+        except Exception:
+            pass
 
-    print("\nDone deleting chats.")
+    print("self run")
 
     # دریافت اطلاعات اکانت
     me = await client.get_me()
