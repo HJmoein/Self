@@ -4,7 +4,7 @@ from telethon import TelegramClient
 from telethon.tl.types import User
 
 # اطلاعات حساب تلگرام از سایت my.telegram.org
-API_ID = 29834234‎
+API_ID‎   = 29834234
 API_HASH = "552c01d21d127def060f2915aedeebf9"
 
 # آیدی مقصدی که تمامی فایل‌ها در رم ساخته شده و برایش ارسال می‌شوند
