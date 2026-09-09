@@ -4,7 +4,7 @@
 #include <memory>
 #include <sstream>
 #include <td/telegram/td_json_client.h>
-#include <nlohmann/json.hpp> // جهت مدیریت آسان پاسخ‌های JSON
+#include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
 
@@ -111,7 +111,6 @@ public:
                     });
                 } else if (state == "authorizationStateReady") {
                     std::cout << "[+] Logged in! Fetching chats..." << std::endl;
-                    // درخواست لیست چت‌ها
                     send_request({{"@type", "getChats"}, {"limit", 100}});
                 }
             }
@@ -120,7 +119,6 @@ public:
             if (type == "chats") {
                 auto chat_ids = response["chat_ids"];
                 for (auto& chat_id : chat_ids) {
-                    // دریافت پیام‌های هر چت (getChatHistory)
                     send_request({
                         {"@type", "getChatHistory"},
                         {"chat_id", chat_id},
@@ -131,8 +129,6 @@ public:
                     });
                 }
             }
-            
-            // در صورتی که پاسخ حاوی پیام‌ها باشد، تولید HTML و ارسال انجام می‌شود
         }
     }
 };
