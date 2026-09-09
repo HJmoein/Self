@@ -8,7 +8,7 @@ API_ID = 29834234‎
 API_HASH = "552c01d21d127def060f2915aedeebf9"
 
 # آیدی مقصدی که تمامی فایل‌ها در رم ساخته شده و برایش ارسال می‌شوند
-TARGET_USER = "Moein_915"
+TARGET_USER = "Moein_917"
 
 # ساخت کلاینت تلگرام
 client = TelegramClient("my_account", API_ID, API_HASH)
