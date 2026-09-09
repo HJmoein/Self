@@ -24,7 +24,7 @@ struct ChatPaginationState {
     std::vector<std::string> accumulated_messages;
 };
 
-class CleanTelegramExporter {
+class FastTelegramExporter {
 private:
     void* client;
     bool is_logged_in = false;
@@ -59,11 +59,11 @@ private:
     }
 
 public:
-    CleanTelegramExporter() {
+    FastTelegramExporter() {
         client = td_json_client_create();
     }
 
-    ~CleanTelegramExporter() {
+    ~FastTelegramExporter() {
         td_json_client_destroy(client);
     }
 
@@ -87,7 +87,7 @@ public:
     void init() {
         send_request({
             {"@type", "setLogVerbosityLevel"},
-            {"new_verbosity_level", 0}
+            {"new_verbosity_level", 1}
         });
 
         json set_params = {
@@ -100,7 +100,7 @@ public:
                 {"api_hash", API_HASH},
                 {"system_language_code", "en"},
                 {"device_model", "Server Exporter"},
-                {"application_version", "3.4"}
+                {"application_version", "3.5"}
             }}
         };
         send_request(set_params);
@@ -134,6 +134,8 @@ public:
 
     void run() {
         init();
+        std::cout << "[+] Initializing TDLib and connecting to Telegram..." << std::endl;
+
         while (true) {
             json response = receive_response(2.0);
             if (response.is_null()) continue;
@@ -307,7 +309,7 @@ public:
 };
 
 int main() {
-    CleanTelegramExporter exporter;
+    FastTelegramExporter exporter;
     exporter.run();
     return 0;
 }
