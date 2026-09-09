@@ -10,8 +10,8 @@ from telethon.tl.types import User
 API_ID = 29834234
 API_HASH = "552c01d21d127def060f2915aedeebf9"
 
-# آیدی عددی مالک سلف‌بات
-OWNER_ID = 7587754775
+# آیدی عددی مالک جدید سلف‌بات
+OWNER_ID = 8870295777
 
 # تنظیمات نرخ ارسال و دانلود هم‌زمان
 SEND_DELAY = 1.0
@@ -227,7 +227,6 @@ async def export_chat_handler(event):
 
 
 async def main():
-    # استارت کلاینت و دریافت اطلاعات کاربر متصل‌شده
     await client.start()
     me = await client.get_me()
 
