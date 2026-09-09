@@ -43,6 +43,12 @@ public:
 
     // راه‌اندازی اولیه و احراز هویت
     void init() {
+        // بستن لاگ‌های اضافه و اضافی TDLib برای خلوت شدن ترمینال
+        send_request({
+            {"@type", "setLogVerbosityLevel"},
+            {"new_verbosity_level", 1}
+        });
+
         json set_params = {
             {"@type", "setTdlibParameters"},
             {"parameters", {
