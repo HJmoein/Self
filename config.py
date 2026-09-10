@@ -1,2 +1,3 @@
 API_ID = 29834234
 API_HASH = "552c01d21d127def060f2915aedeebf9"
+SESSION_NAME = "selfbot"
