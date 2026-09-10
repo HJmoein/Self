@@ -50,6 +50,7 @@ async def show_help(event):
         "├ <code>.دانلود استوری لینک</code>\n"
         "└ <code>.دانلود چنل لینک</code>"
     )
+
     await event.edit(help_text, parse_mode="html")
 
 
@@ -113,14 +114,32 @@ async def run_with_floodwait(operation):
 
 def progress_text(downloaded, total, frame, title="دانلود"):
     percent = int(downloaded * 100 / total) if total else 0
+
     filled = percent // 10
     bar = "█" * filled + "░" * (10 - filled)
+
     return f"{frame} {title}\n[{bar}] {percent}%"
 
 
-# =========================================================
-# بهینه‌شده
-# =========================================================
+def upload_progress_text(downloaded, total, speed):
+    percent = int(downloaded * 100 / total) if total else 0
+
+    filled = percent // 10
+    bar = "█" * filled + "░" * (10 - filled)
+
+    if speed >= 1024 * 1024:
+        speed_text = f"{speed / (1024 * 1024):.2f} MB/s"
+    elif speed >= 1024:
+        speed_text = f"{speed / 1024:.2f} KB/s"
+    else:
+        speed_text = f"{speed:.0f} B/s"
+
+    return (
+        "📤 <b>در حال ارسال استوری</b>\n"
+        f"[{bar}] {percent}%\n"
+        f"⚡ سرعت: {speed_text}"
+    )
+
 
 async def download_story_link(chat_id, link, status_message=None):
     match = STORY_LINK_PATTERN.match(link.strip())
@@ -151,11 +170,15 @@ async def download_story_link(chat_id, link, status_message=None):
         if not story.media:
             return "این استوری فایل قابل دانلود ندارد."
 
+        # -------------------------
+        # Download progress
+        # -------------------------
+
         last_update = 0.0
         frames = ("⏳", "⌛", "🔄", "✨")
         frame_index = 0
 
-        def show_progress(downloaded, total):
+        def download_progress(downloaded, total):
             nonlocal last_update, frame_index
 
             if status_message is None or not total:
@@ -163,7 +186,6 @@ async def download_story_link(chat_id, link, status_message=None):
 
             now = time.monotonic()
 
-            # جلوگیری از ویرایش بیش از حد پیام
             if now - last_update < 2:
                 return
 
@@ -186,19 +208,83 @@ async def download_story_link(chat_id, link, status_message=None):
             prefix="meow_story_"
         ) as folder:
 
-            # دانلود استوری
             file_path = await run_with_floodwait(
                 lambda: client.download_media(
                     story.media,
                     file=folder,
-                    progress_callback=show_progress,
+                    progress_callback=download_progress,
                 )
             )
 
             if not file_path:
                 return "دانلود استوری انجام نشد."
 
-            # آپلود به تلگرام
+            # -------------------------
+            # Download finished
+            # -------------------------
+
+            if status_message is not None:
+                try:
+                    await status_message.edit(
+                        "📤 <b>در حال ارسال استوری...</b>\n"
+                        "[░░░░░░░░░░] 0%\n"
+                        "⚡ سرعت: محاسبه..."
+                    )
+                except Exception:
+                    pass
+
+            # -------------------------
+            # Upload progress
+            # -------------------------
+
+            upload_start = time.monotonic()
+            last_uploaded = 0
+            last_upload_time = upload_start
+            last_upload_update = 0.0
+
+            def upload_progress(current, total):
+                nonlocal last_upload_update
+                nonlocal last_uploaded
+                nonlocal last_upload_time
+
+                if status_message is None or not total:
+                    return
+
+                now = time.monotonic()
+
+                # آپدیت پیام هر 2 ثانیه
+                if now - last_upload_update < 2:
+                    return
+
+                elapsed = now - upload_start
+
+                if elapsed <= 0:
+                    return
+
+                # سرعت میانگین واقعی آپلود
+                speed = current / elapsed
+
+                last_upload_update = now
+                last_uploaded = current
+                last_upload_time = now
+
+                message = upload_progress_text(
+                    current,
+                    total,
+                    speed
+                )
+
+                asyncio.create_task(
+                    status_message.edit(
+                        message,
+                        parse_mode="html"
+                    )
+                )
+
+            # -------------------------
+            # Upload
+            # -------------------------
+
             await run_with_floodwait(
                 lambda: client.send_file(
                     chat_id,
@@ -206,6 +292,7 @@ async def download_story_link(chat_id, link, status_message=None):
                     caption="استوری دانلود شد ✅",
                     part_size_kb=512,
                     supports_streaming=True,
+                    progress_callback=upload_progress,
                 )
             )
 
@@ -214,10 +301,6 @@ async def download_story_link(chat_id, link, status_message=None):
     except Exception as error:
         return f"دانلود استوری انجام نشد: {type(error).__name__}"
 
-
-# =========================================================
-# دانلود پیام کانال
-# =========================================================
 
 async def download_channel_message(chat_id, link, status_message=None):
     match = CHANNEL_LINK_PATTERN.match(link.strip())
@@ -349,10 +432,6 @@ async def download_channel_message(chat_id, link, status_message=None):
     except Exception as error:
         return f"دانلود پیام کانال انجام نشد: {type(error).__name__}"
 
-
-# =========================================================
-# Handler
-# =========================================================
 
 @client.on(events.NewMessage(outgoing=True))
 async def handler(event):
@@ -499,10 +578,6 @@ async def handler(event):
                 f"دانلود استوری انجام نشد: {type(error).__name__}"
             )
 
-
-# =========================================================
-# Main
-# =========================================================
 
 async def main():
     await client.start()
