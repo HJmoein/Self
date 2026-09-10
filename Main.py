@@ -9,16 +9,7 @@ from telethon.tl.functions.stories import GetStoriesByIDRequest
 from config import API_ID, API_HASH, SESSION_NAME
 
 
-client = TelegramClient(
-    SESSION_NAME,
-    API_ID,
-    API_HASH,
-    request_retries=3,
-    connection_retries=3,
-    retry_delay=1,
-    auto_reconnect=True,
-    flood_sleep_threshold=60,
-)
+client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 
 tasks = {}
 
@@ -120,6 +111,17 @@ async def run_with_floodwait(operation):
             await asyncio.sleep(error.seconds)
 
 
+def progress_text(downloaded, total, frame, title="دانلود"):
+    percent = int(downloaded * 100 / total) if total else 0
+    filled = percent // 10
+    bar = "█" * filled + "░" * (10 - filled)
+    return f"{frame} {title}\n[{bar}] {percent}%"
+
+
+# =========================================================
+# بهینه‌شده
+# =========================================================
+
 async def download_story_link(chat_id, link, status_message=None):
     match = STORY_LINK_PATTERN.match(link.strip())
 
@@ -132,10 +134,12 @@ async def download_story_link(chat_id, link, status_message=None):
     try:
         peer = await client.get_input_entity(username)
 
-        result = await client(
-            GetStoriesByIDRequest(
-                peer=peer,
-                id=[story_id]
+        result = await run_with_floodwait(
+            lambda: client(
+                GetStoriesByIDRequest(
+                    peer=peer,
+                    id=[story_id]
+                )
             )
         )
 
@@ -147,25 +151,62 @@ async def download_story_link(chat_id, link, status_message=None):
         if not story.media:
             return "این استوری فایل قابل دانلود ندارد."
 
-        if status_message:
-            await status_message.edit("⏬ در حال دانلود استوری...")
+        last_update = 0.0
+        frames = ("⏳", "⌛", "🔄", "✨")
+        frame_index = 0
+
+        def show_progress(downloaded, total):
+            nonlocal last_update, frame_index
+
+            if status_message is None or not total:
+                return
+
+            now = time.monotonic()
+
+            # جلوگیری از ویرایش بیش از حد پیام
+            if now - last_update < 2:
+                return
+
+            last_update = now
+
+            message = progress_text(
+                downloaded,
+                total,
+                frames[frame_index % len(frames)],
+                title="دانلود استوری",
+            )
+
+            frame_index += 1
+
+            asyncio.create_task(
+                status_message.edit(message)
+            )
 
         with tempfile.TemporaryDirectory(
             prefix="meow_story_"
         ) as folder:
 
-            file_path = await client.download_media(
-                story.media,
-                file=folder
+            # دانلود استوری
+            file_path = await run_with_floodwait(
+                lambda: client.download_media(
+                    story.media,
+                    file=folder,
+                    progress_callback=show_progress,
+                )
             )
 
             if not file_path:
                 return "دانلود استوری انجام نشد."
 
-            await client.send_file(
-                chat_id,
-                file_path,
-                caption="استوری دانلود شد ✅"
+            # آپلود به تلگرام
+            await run_with_floodwait(
+                lambda: client.send_file(
+                    chat_id,
+                    file_path,
+                    caption="استوری دانلود شد ✅",
+                    part_size_kb=512,
+                    supports_streaming=True,
+                )
             )
 
         return None
@@ -173,6 +214,10 @@ async def download_story_link(chat_id, link, status_message=None):
     except Exception as error:
         return f"دانلود استوری انجام نشد: {type(error).__name__}"
 
+
+# =========================================================
+# دانلود پیام کانال
+# =========================================================
 
 async def download_channel_message(chat_id, link, status_message=None):
     match = CHANNEL_LINK_PATTERN.match(link.strip())
@@ -238,10 +283,31 @@ async def download_channel_message(chat_id, link, status_message=None):
         caption = message_info + (message.message or "")
 
         if message.media:
+            last_update = 0.0
+            frames = ("⏳", "⌛", "🔄", "✨")
+            frame_index = 0
 
-            if status_message:
-                await status_message.edit(
-                    "⏬ در حال دانلود پست کانال..."
+            def show_progress(downloaded, total):
+                nonlocal last_update, frame_index
+
+                now = time.monotonic()
+
+                if status_message is None or now - last_update < 2:
+                    return
+
+                last_update = now
+
+                progress = progress_text(
+                    downloaded,
+                    total,
+                    frames[frame_index % len(frames)],
+                    title="دانلود پست کانال",
+                )
+
+                frame_index += 1
+
+                asyncio.create_task(
+                    status_message.edit(progress)
                 )
 
             with tempfile.TemporaryDirectory(
@@ -251,7 +317,8 @@ async def download_channel_message(chat_id, link, status_message=None):
                 file_path = await run_with_floodwait(
                     lambda: client.download_media(
                         message,
-                        file=folder
+                        file=folder,
+                        progress_callback=show_progress,
                     )
                 )
 
@@ -267,7 +334,6 @@ async def download_channel_message(chat_id, link, status_message=None):
                 )
 
         elif message.message:
-
             await run_with_floodwait(
                 lambda: client.send_message(
                     chat_id,
@@ -283,6 +349,10 @@ async def download_channel_message(chat_id, link, status_message=None):
     except Exception as error:
         return f"دانلود پیام کانال انجام نشد: {type(error).__name__}"
 
+
+# =========================================================
+# Handler
+# =========================================================
 
 @client.on(events.NewMessage(outgoing=True))
 async def handler(event):
@@ -310,7 +380,8 @@ async def handler(event):
         link = text[len("دانلود چنل "):].strip()
 
         await event.edit(
-            "⏳ دانلود پست کانال شروع شد..."
+            "⏳ دانلود پست کانال شروع شد...\n"
+            "[░░░░░░░░░░] 0%"
         )
 
         error_message = await download_channel_message(
@@ -337,7 +408,8 @@ async def handler(event):
             return
 
         await event.edit(
-            "⏳ دانلود استوری شروع شد..."
+            "⏳ دانلود استوری شروع شد...\n"
+            "[░░░░░░░░░░] 0%"
         )
 
         error_message = await download_story_link(
@@ -395,7 +467,7 @@ async def handler(event):
             return
 
         await event.edit(
-            "⏬ در حال دانلود استوری..."
+            "در حال دانلود استوری... ⏳"
         )
 
         try:
@@ -427,6 +499,10 @@ async def handler(event):
                 f"دانلود استوری انجام نشد: {type(error).__name__}"
             )
 
+
+# =========================================================
+# Main
+# =========================================================
 
 async def main():
     await client.start()
