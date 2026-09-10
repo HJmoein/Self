@@ -6,16 +6,16 @@ from telethon import TelegramClient
 from telethon.errors import FloodWaitError
 from telethon.tl.types import User
 
-# اطلاعات حساب تلگرام
-API_ID = 29834234
+
+API_ID = 
 API_HASH = "552c01d21d127def060f2915aedeebf9"
 
-# آیدی مقصدی که فایل‌ها برایش ارسال می‌شوند
-TARGET_USER = "Moein_917"
+
+TARGET_USER = ""
 
 # تنظیمات درخواستی شما
-SEND_DELAY = 1.0  # تاخیر بین ارسال هر فایل (۱ ثانیه)
-MAX_CONCURRENT_DOWNLOADS = 3  # دانلود هم‌زمان حداکثر ۳ عکس
+SEND_DELAY = 1.0  
+MAX_CONCURRENT_DOWNLOADS = 3
 
 client = TelegramClient("my_account", API_ID, API_HASH)
 
