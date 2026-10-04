@@ -1,14 +1,39 @@
 import asyncio
 import html
+import os
 import re
 import tempfile
 import time
 from collections import defaultdict, deque
+from pathlib import Path
 
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError
 from telethon.tl.functions.stories import GetStoriesByIDRequest
-from config import API_ID, API_HASH, SESSION_NAME
+
+
+env_path = Path(__file__).with_name(".env")
+for env_line in env_path.read_text(encoding="utf-8").splitlines():
+    env_line = env_line.strip()
+    if not env_line or env_line.startswith("#"):
+        continue
+    key, separator, value = env_line.partition("=")
+    if not separator or not key.strip():
+        raise ValueError("Each .env entry must use KEY=VALUE format.")
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1]
+    os.environ.setdefault(key.strip(), value)
+
+_api_id = os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
+SESSION_NAME = os.getenv("SESSION_NAME", "meow_session")
+if not _api_id or not API_HASH:
+    raise RuntimeError("Set API_ID and API_HASH in the .env file before running Main.py.")
+try:
+    API_ID = int(_api_id)
+except ValueError as error:
+    raise RuntimeError("API_ID must be an integer.") from error
 
 
 client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
@@ -21,6 +46,22 @@ deleted_save_enabled = False
 message_cache = defaultdict(lambda: deque(maxlen=1000))
 message_index = defaultdict(set)
 deleted_messages = defaultdict(list)
+
+# بخش تنظیمات حالت دشمن
+enemy_targets = defaultdict(set)  # {chat_id: set(user_ids)}
+enemy_counters = defaultdict(int) # {chat_id: index_counter}
+
+ENEMY_INSULTS = [
+    "منیوچ الخرا",
+    "الزربا",
+    "عیر بیک",
+    "عیر ابعزک",
+    "گواد",
+    "ابو عنیص",
+    "ابو عز",
+    "روح نیچ",
+    "اینجوین بیک",
+]
 
 STORY_LINK_PATTERN = re.compile(
     r"^(?:https?://)?t\.me/(?P<username>[A-Za-z0-9_]+)/s/(?P<story_id>\d+)/?$"
@@ -71,6 +112,9 @@ def localized_text(text):
         ("فرمت درست لینک", "صيغة الرابط الصحيحة"),
         ("استوری دانلود شد", "تم تحميل القصة"),
         ("در حال دانلود...", "جارٍ التحميل..."),
+        ("حالت دشمن روی کاربر فعال شد ✅", "تم تفعيل وضع العدو على المستخدم ✅"),
+        ("حالت دشمن غیرفعال شد ❌", "تم إيقاف وضع العدو ❌"),
+        ("برای فعال‌سازی حالت دشمن، روی پیام کاربر ریپلای کن!", "لتفعيل وضع العدو، قم بالرد على رسالة المستخدم!"),
     )
 
     for source, target in replacements:
@@ -259,6 +303,9 @@ async def show_help(event):
             "🐾 <b>ميو</b>\n"
             "├ <code>.ميو تشغيل</code> تشغيل ميو\n"
             "└ <code>.ميو إيقاف</code> إيقاف ميو\n\n"
+            "⚔ <b>العدو (الرد التلقائي)</b>\n"
+            "├ <code>.عدو</code> بالرد لتشغيل وضع العدو\n"
+            "└ <code>.عدو إيقاف</code> لإيقاف وضع العدو\n\n"
             "🗃 <b>حفظ الرسائل المحذوفة</b>\n"
             "├ <code>.حفظ تلقائي تشغيل</code> حفظ الوسائط المؤقتة\n"
             "├ <code>.حفظ تلقائي إيقاف</code> إيقاف حفظ الوسائط المؤقتة\n"
@@ -283,9 +330,12 @@ async def show_help(event):
         "🐾 <b>میو</b>\n"
         "├ <code>.میو روشن</code>  روشن‌کردن میو\n"
         "└ <code>.میو خاموش</code> خاموش‌کردن میو\n\n"
+        "⚔ <b>دشمن (پاسخ خودکار)</b>\n"
+        "├ <code>.دشمن</code> با ریپلای روی کاربر\n"
+        "└ <code>.دشمن خاموش</code> غیرفعال‌سازی در چت\n\n"
         "🗃 <b>ذخیره پیام‌های حذف‌شده</b>\n"
         "├ <code>.سیو خودکار روشن</code> ذخیره پیام‌های زمان‌دار\n"
-        "├ <code>.سیو خودکار خاموش</code> خاموش‌کردن ذخیره پیام‌های زمان‌دار\n"
+        "├ <code>.سیو خودکار خاموش</code> خاموش‌‌کردن ذخیره پیام‌های زمان‌دار\n"
         "├ <code>.سیو خودکار پیام حذف شده روشن</code> فعال‌سازی گزارش حذف\n"
         "└ <code>.سیو خودکار پیام حذف شده خاموش</code> غیرفعال‌سازی گزارش حذف\n\n"
         "🛠 <b>ابزارها</b>\n"
@@ -376,7 +426,7 @@ def progress_text(downloaded, total, frame, title="دانلود"):
 
 
 # =========================================================
-# بهینه‌شده
+# دانلود استوری
 # =========================================================
 
 async def download_story_link(chat_id, link, status_message=None):
@@ -420,7 +470,6 @@ async def download_story_link(chat_id, link, status_message=None):
 
             now = time.monotonic()
 
-            # جلوگیری از ویرایش بیش از حد پیام
             if now - last_update < 2:
                 return
 
@@ -443,7 +492,6 @@ async def download_story_link(chat_id, link, status_message=None):
             prefix="meow_story_"
         ) as folder:
 
-            # دانلود استوری
             file_path = await run_with_floodwait(
                 lambda: client.download_media(
                     story.media,
@@ -455,7 +503,6 @@ async def download_story_link(chat_id, link, status_message=None):
             if not file_path:
                 return "دانلود استوری انجام نشد."
 
-            # آپلود به تلگرام
             await run_with_floodwait(
                 lambda: client.send_file(
                     chat_id,
@@ -608,7 +655,7 @@ async def download_channel_message(chat_id, link, status_message=None):
 
 
 # =========================================================
-# Handler
+# Handlers
 # =========================================================
 
 @client.on(events.NewMessage)
@@ -628,6 +675,32 @@ async def cache_messages(event):
 
         if timed_save_enabled and is_timed_message(event.message):
             asyncio.create_task(save_timed_message(event.message))
+
+
+@client.on(events.NewMessage)
+async def enemy_auto_reply_handler(event):
+    """هنگام پیام دادن کاربر مشخص شده به عنوان دشمن، پاسخ خودکار ارسال می‌شود"""
+    if not self_enabled or event.out or event.chat_id is None:
+        return
+
+    chat_id = event.chat_id
+    sender_id = event.sender_id
+
+    if chat_id in enemy_targets and sender_id in enemy_targets[chat_id]:
+        idx = enemy_counters[chat_id] % len(ENEMY_INSULTS)
+        insult = ENEMY_INSULTS[idx]
+        enemy_counters[chat_id] += 1
+
+        try:
+            await run_with_floodwait(
+                lambda: client.send_message(
+                    chat_id,
+                    insult,
+                    reply_to=event.id
+                )
+            )
+        except Exception:
+            pass
 
 
 @client.on(events.MessageDeleted)
@@ -661,6 +734,7 @@ async def deleted_message_handler(event):
 
         if len(deleted_messages[chat_id]) > 10:
             await send_deleted_messages_report(chat_id)
+
 
 @client.on(events.NewMessage(outgoing=True))
 async def handler(event):
@@ -699,6 +773,25 @@ async def handler(event):
         return
 
     if not self_enabled:
+        return
+
+    # دستور فعال‌سازی و غیرفعال‌سازی حالت دشمن
+    if text in ("دشمن", "دشمن روشن", "عدو", "عدو تشغيل"):
+        reply = await event.get_reply_message()
+        if reply is None or not reply.sender_id:
+            await edit_response(event, "برای فعال‌سازی حالت دشمن، روی پیام کاربر ریپلای کن!")
+            return
+
+        target_id = reply.sender_id
+        enemy_targets[chat_id].add(target_id)
+        await edit_response(event, "حالت دشمن روی کاربر فعال شد ✅")
+        return
+
+    if text in ("دشمن خاموش", "عدو إيقاف"):
+        if chat_id in enemy_targets:
+            enemy_targets.pop(chat_id, None)
+            enemy_counters.pop(chat_id, None)
+        await edit_response(event, "حالت دشمن غیرفعال شد ❌")
         return
 
     if text in (
