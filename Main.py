@@ -72,6 +72,8 @@ CHANNEL_LINK_PATTERN = re.compile(
 )
 
 STORY_COMMAND = "دانلود استوری"
+ARABIC_STORY_COMMAND = "تحميل قصة"
+CHANNEL_COMMANDS = ("دانلود چنل", "تحميل قناة")
 PERSIAN_HELP_COMMANDS = ("راهنما", "دستورات")
 ARABIC_HELP_COMMANDS = ("مساعدة", "الأوامر")
 
@@ -115,6 +117,14 @@ def localized_text(text):
         ("حالت دشمن روی کاربر فعال شد ✅", "تم تفعيل وضع العدو على المستخدم ✅"),
         ("حالت دشمن غیرفعال شد ❌", "تم إيقاف وضع العدو ❌"),
         ("برای فعال‌سازی حالت دشمن، روی پیام کاربر ریپلای کن!", "لتفعيل وضع العدو، قم بالرد على رسالة المستخدم!"),
+        ("لینک معتبر استوری نیست. نمونه:", "رابط القصة غير صالح. مثال:"),
+        ("این استوری پیدا نشد یا دیگر در دسترس نیست.", "لم يتم العثور على هذه القصة أو لم تعد متاحة."),
+        ("این استوری فایل قابل دانلود ندارد.", "لا تحتوي هذه القصة على ملف قابل للتنزيل."),
+        ("دانلود استوری انجام نشد.", "تعذر تنزيل القصة."),
+        ("لینک معتبر پیام کانال نیست.", "رابط منشور القناة غير صالح."),
+        ("این پیام پیدا نشد یا دسترسی به آن وجود ندارد.", "لم يتم العثور على المنشور أو لا تملك صلاحية الوصول إليه."),
+        ("کانال:", "القناة:"),
+        ("منتشرکننده:", "الناشر:"),
     )
 
     for source, target in replacements:
@@ -314,7 +324,10 @@ async def show_help(event):
             "🛠 <b>الأدوات</b>\n"
             "├ <code>.بنغ</code> فحص سرعة الاستجابة\n"
             "├ <code>.معرف</code> معرف المستخدم بالرد\n"
-            "└ <code>.معرفي</code> معرف حسابي"
+            "└ <code>.معرفي</code> معرف حسابي\n\n"
+            "📥 <b>التنزيل</b>\n"
+            "├ <code>.تحميل قصة رابط</code> تنزيل قصة\n"
+            "└ <code>.تحميل قناة رابط</code> تنزيل منشور من قناة"
         )
     else:
         help_text = (
@@ -870,8 +883,12 @@ async def handler(event):
         await show_my_id(event)
         return
 
-    if text.startswith("دانلود چنل "):
-        link = text[len("دانلود چنل "):].strip()
+    channel_command = next(
+        (command for command in CHANNEL_COMMANDS if text.startswith(command + " ")),
+        None,
+    )
+    if channel_command:
+        link = text[len(channel_command):].strip()
 
         await edit_response(
             event,
@@ -892,14 +909,26 @@ async def handler(event):
 
         return
 
-    if text.startswith(STORY_COMMAND + " "):
-        link = text[len(STORY_COMMAND):].strip()
+    story_command = next(
+        (
+            command
+            for command in (STORY_COMMAND, ARABIC_STORY_COMMAND)
+            if text.startswith(command + " ")
+        ),
+        None,
+    )
+    if story_command:
+        link = text[len(story_command):].strip()
 
         if not STORY_LINK_PATTERN.match(link):
+            command_example = (
+                ARABIC_STORY_COMMAND
+                if current_language == "ar"
+                else STORY_COMMAND
+            )
             await edit_response(
                 event,
-                "فرمت درست:\n"
-                ".دانلود استوری https://t.me/username/s/123"
+                f"فرمت درست:\n.{command_example} https://t.me/username/s/123"
             )
             return
 
