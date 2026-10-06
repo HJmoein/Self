@@ -1,5 +1,7 @@
 import asyncio
 import io
+import json
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -232,37 +234,24 @@ class AccountManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Back", output.getvalue())
         self.assertNotIn("Run Account", output.getvalue())
 
-    async def test_account_list_shows_count_ids_and_names(self):
+    async def test_account_list_shows_cached_phone_ids_and_names_without_opening_sessions(self):
         paths = [Path("self.session"), Path("account_1.session")]
-
-        class FakeClient:
-            def __init__(self, session, api_id, api_hash):
-                self.session = Path(session).name
-                self.connected = False
-
-            async def connect(self):
-                self.connected = True
-
-            async def is_user_authorized(self):
-                return self.session == "self"
-
-            async def get_me(self):
-                return type(
-                    "User",
-                    (),
-                    {"id": 12345, "first_name": "Test", "last_name": "Account"},
-                )()
-
-            def is_connected(self):
-                return self.connected
-
-            async def disconnect(self):
-                self.connected = False
-
+        cached_profiles = {
+            "self": {
+                "phone": "+123456789",
+                "id": 12345,
+                "name": "Test Account",
+            }
+        }
         output = io.StringIO()
         with (
             patch.object(account_manager, "_session_paths", return_value=paths),
-            patch.object(account_manager, "TelegramClient", FakeClient),
+            patch.object(
+                account_manager,
+                "_read_account_profiles",
+                return_value=cached_profiles,
+            ),
+            patch.object(account_manager, "TelegramClient") as telegram_client,
             patch("builtins.input", return_value="") as prompt,
             redirect_stdout(output),
         ):
@@ -270,8 +259,10 @@ class AccountManagerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(accounts), 1)
         self.assertIn("Accounts: 1", output.getvalue())
+        self.assertIn("Phone: +123456789", output.getvalue())
         self.assertIn("ID: 12345", output.getvalue())
         self.assertIn("Name: Test Account", output.getvalue())
+        telegram_client.assert_not_called()
         self.assertNotIn("Session:", output.getvalue())
         self.assertNotIn("self.session", output.getvalue())
         self.assertNotIn("account_1.session", output.getvalue())
@@ -307,14 +298,30 @@ class AccountManagerTests(unittest.IsolatedAsyncioTestCase):
             patch("builtins.input", return_value="+123456789"),
             patch.object(account_manager, "_next_session_path", return_value=Path("account_2")),
             patch.object(account_manager, "TelegramClient", FakeClient),
+            tempfile.TemporaryDirectory() as temporary_directory,
+            patch.object(
+                account_manager,
+                "ACCOUNT_METADATA_PATH",
+                Path(temporary_directory) / ".account_profiles.json",
+            ),
             redirect_stdout(output),
         ):
             await account_manager.add_account()
+            saved_profiles = json.loads(
+                (Path(temporary_directory) / ".account_profiles.json").read_text(
+                    encoding="utf-8"
+                )
+            )
 
         self.assertIn("Account added successfully.", output.getvalue())
+        self.assertIn("Phone: +123456789", output.getvalue())
         self.assertIn("ID: 67890", output.getvalue())
         self.assertIn("Name: New User", output.getvalue())
         self.assertNotIn("Session:", output.getvalue())
+        self.assertEqual(
+            saved_profiles["account_2"],
+            {"id": 67890, "name": "New User", "phone": "+123456789"},
+        )
 
     async def test_back_cancels_account_add_flow(self):
         output = io.StringIO()
@@ -387,6 +394,23 @@ class ApplicationStartupTests(unittest.IsolatedAsyncioTestCase):
                     side_effect=lambda: startup_order.append("run")
                 ),
             ) as run,
+            patch.object(
+                core.client,
+                "get_me",
+                new=AsyncMock(
+                    return_value=type(
+                        "User",
+                        (),
+                        {
+                            "id": 12345,
+                            "first_name": "Test",
+                            "last_name": "Account",
+                            "phone": "+123456789",
+                        },
+                    )(),
+                ),
+            ),
+            patch.object(account_manager, "save_account_profile") as save_profile,
             patch.object(account_manager, "main", new=AsyncMock()) as manager,
             patch.object(
                 account_manager,
@@ -400,6 +424,7 @@ class ApplicationStartupTests(unittest.IsolatedAsyncioTestCase):
         start.assert_awaited_once()
         run.assert_awaited_once()
         manager.assert_not_awaited()
+        save_profile.assert_called_once()
         terminal_print.assert_any_call("SelfBot is running...")
         self.assertEqual(startup_order, ["start", "run"])
         listing.assert_not_awaited()

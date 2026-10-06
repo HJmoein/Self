@@ -1,3 +1,4 @@
 .env
 *.session
 *.session-journal
+.account_profiles.json
