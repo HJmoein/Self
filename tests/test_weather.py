@@ -1,9 +1,12 @@
 import asyncio
+import io
 import unittest
+from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlparse
 
-from Selfbot import core, handlers, ui, weather
+from Selfbot import account_manager, app, core, handlers, ui, weather
 
 
 class FakeEvent:
@@ -216,6 +219,216 @@ class MainHelpUiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("<code>.طقس طهران</code>", help_text)
         self.assertNotIn("<b>المساعدة</b>:", help_text)
         self.assertNotIn("پنل دستورات سلف", help_text)
+
+
+class AccountManagerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_account_menu_uses_english_labels(self):
+        output = io.StringIO()
+        with patch("builtins.input", return_value="3"), redirect_stdout(output):
+            await account_manager.main()
+
+        self.assertIn("Add Account", output.getvalue())
+        self.assertIn("List Accounts", output.getvalue())
+        self.assertIn("Back", output.getvalue())
+        self.assertNotIn("Run Account", output.getvalue())
+
+    async def test_account_list_shows_count_ids_and_names(self):
+        paths = [Path("self.session"), Path("account_1.session")]
+
+        class FakeClient:
+            def __init__(self, session, api_id, api_hash):
+                self.session = Path(session).name
+                self.connected = False
+
+            async def connect(self):
+                self.connected = True
+
+            async def is_user_authorized(self):
+                return self.session == "self"
+
+            async def get_me(self):
+                return type(
+                    "User",
+                    (),
+                    {"id": 12345, "first_name": "Test", "last_name": "Account"},
+                )()
+
+            def is_connected(self):
+                return self.connected
+
+            async def disconnect(self):
+                self.connected = False
+
+        output = io.StringIO()
+        with (
+            patch.object(account_manager, "_session_paths", return_value=paths),
+            patch.object(account_manager, "TelegramClient", FakeClient),
+            patch("builtins.input", return_value="") as prompt,
+            redirect_stdout(output),
+        ):
+            accounts = await account_manager.list_accounts()
+
+        self.assertEqual(len(accounts), 1)
+        self.assertIn("Accounts: 1", output.getvalue())
+        self.assertIn("ID: 12345", output.getvalue())
+        self.assertIn("Name: Test Account", output.getvalue())
+        self.assertNotIn("Session:", output.getvalue())
+        self.assertNotIn("self.session", output.getvalue())
+        self.assertNotIn("account_1.session", output.getvalue())
+        prompt.assert_called_once_with("\nPress Enter or type B to go back: ")
+
+    async def test_add_account_prompts_and_reports_english_success(self):
+        user = type(
+            "User",
+            (),
+            {"id": 67890, "first_name": "New", "last_name": "User"},
+        )()
+
+        class FakeClient:
+            def __init__(self, *args):
+                self.connected = False
+                self.start_arguments = None
+
+            async def start(self, **kwargs):
+                self.connected = True
+                self.start_arguments = kwargs
+
+            async def get_me(self):
+                return user
+
+            def is_connected(self):
+                return self.connected
+
+            async def disconnect(self):
+                self.connected = False
+
+        output = io.StringIO()
+        with (
+            patch("builtins.input", return_value="+123456789"),
+            patch.object(account_manager, "_next_session_path", return_value=Path("account_2")),
+            patch.object(account_manager, "TelegramClient", FakeClient),
+            redirect_stdout(output),
+        ):
+            await account_manager.add_account()
+
+        self.assertIn("Account added successfully.", output.getvalue())
+        self.assertIn("ID: 67890", output.getvalue())
+        self.assertIn("Name: New User", output.getvalue())
+        self.assertNotIn("Session:", output.getvalue())
+
+    async def test_back_cancels_account_add_flow(self):
+        output = io.StringIO()
+        with (
+            patch("builtins.input", return_value="B"),
+            patch.object(account_manager, "TelegramClient") as telegram_client,
+            redirect_stdout(output),
+        ):
+            await account_manager.add_account()
+
+        telegram_client.assert_not_called()
+
+    async def test_back_during_login_code_returns_to_account_menu(self):
+        class FakeClient:
+            def __init__(self, *args):
+                self.connected = False
+
+            async def start(self, **kwargs):
+                self.connected = True
+                kwargs["code_callback"]()
+
+            def is_connected(self):
+                return self.connected
+
+            async def disconnect(self):
+                self.connected = False
+
+        output = io.StringIO()
+        with (
+            patch("builtins.input", side_effect=["+123456789", "B"]),
+            patch.object(
+                account_manager,
+                "_next_session_path",
+                return_value=Path("account_2"),
+            ),
+            patch.object(account_manager, "TelegramClient", FakeClient),
+            redirect_stdout(output),
+        ):
+            await account_manager.add_account()
+
+        self.assertIn("Account setup cancelled.", output.getvalue())
+
+    async def test_account_manager_lists_then_back_returns_to_menu(self):
+        output = io.StringIO()
+        with (
+            patch("builtins.input", side_effect=["2", "", "3"]),
+            patch.object(account_manager, "list_accounts", new=AsyncMock()) as listing,
+            redirect_stdout(output),
+        ):
+            await account_manager.main()
+
+        listing.assert_awaited_once()
+        self.assertGreaterEqual(output.getvalue().count("=== SELFBOT ACCOUNT MANAGER ==="), 2)
+
+
+class ApplicationStartupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_normal_startup_runs_selfbot_without_account_listing(self):
+        startup_order = []
+        with (
+            patch.object(app.sys, "argv", ["Bot.py"]),
+            patch.object(
+                core.client,
+                "start",
+                new=AsyncMock(side_effect=lambda: startup_order.append("start")),
+            ) as start,
+            patch.object(
+                core.client,
+                "run_until_disconnected",
+                new=AsyncMock(
+                    side_effect=lambda: startup_order.append("run")
+                ),
+            ) as run,
+            patch.object(account_manager, "main", new=AsyncMock()) as manager,
+            patch.object(
+                account_manager,
+                "list_accounts",
+                new=AsyncMock(),
+            ) as listing,
+            patch("builtins.print") as terminal_print,
+        ):
+            await app.main()
+
+        start.assert_awaited_once()
+        run.assert_awaited_once()
+        manager.assert_not_awaited()
+        terminal_print.assert_any_call("SelfBot is running...")
+        self.assertEqual(startup_order, ["start", "run"])
+        listing.assert_not_awaited()
+
+    async def test_accounts_argument_opens_manager(self):
+        with (
+            patch.object(app.sys, "argv", ["Bot.py", "--accounts"]),
+            patch.object(account_manager, "main", new=AsyncMock()) as manager,
+            patch.object(core.client, "start", new=AsyncMock()) as start,
+        ):
+            await app.main()
+
+        manager.assert_awaited_once()
+        start.assert_not_awaited()
+
+    async def test_list_accounts_argument_shows_list_without_starting_bot(self):
+        with (
+            patch.object(app.sys, "argv", ["Bot.py", "--list-accounts"]),
+            patch.object(
+                account_manager,
+                "list_accounts",
+                new=AsyncMock(),
+            ) as listing,
+            patch.object(core.client, "start", new=AsyncMock()) as start,
+        ):
+            await app.main()
+
+        listing.assert_awaited_once_with(wait_for_back=False)
+        start.assert_not_awaited()
 
 
 class WeatherHandlerTests(unittest.IsolatedAsyncioTestCase):

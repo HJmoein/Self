@@ -1,5 +1,35 @@
 # Self
 
+## Run the bot
+
+Running the entry point starts the Selfbot directly with the session configured
+in `.env`:
+
+```powershell
+python Bot.py
+```
+
+To list authorized accounts, their count, Telegram IDs, and names separately,
+run:
+
+```powershell
+python Bot.py --list-accounts
+```
+
+To open the English account manager for adding accounts, run:
+
+```powershell
+python Bot.py --accounts
+```
+
+The manager can add an account or list authorized accounts with their count,
+Telegram ID, and name. Use `B` while adding an account, or press Enter/`B` on
+the list screen, to go back. The manager menu's `Back` option returns to the
+terminal; it does not start the bot. Adding an account requires its phone
+number, Telegram login code, and two-step verification password when enabled.
+Account sessions are stored as local `.session` files and are excluded from
+Git; session filenames are not shown in account listings.
+
 ## Tests
 
 Run the automated test suite from the project root:
