@@ -2,3 +2,4 @@
 *.session
 *.session-journal
 .account_profiles.json
+.selfbot_settings.json

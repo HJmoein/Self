@@ -109,21 +109,25 @@ async def handler(event):
 
     if text in core.COMMAND_ALIASES["self_on"]:
         core.self_enabled = True
+        core.save_settings()
         await core.edit_response(event, "سلف روشن شد ✅")
         return
 
     if text in core.COMMAND_ALIASES["self_off"]:
         core.self_enabled = False
+        core.save_settings()
         await core.edit_response(event, "سلف خاموش شد")
         return
 
     if text in core.COMMAND_ALIASES["language_fa"]:
         core.current_language = "fa"
+        core.save_settings()
         await event.edit("زبان فارسی فعال شد ✅")
         return
 
     if text in core.COMMAND_ALIASES["language_ar"]:
         core.current_language = "ar"
+        core.save_settings()
         await event.edit("تم تفعيل اللغة العربية ✅")
         return
 
@@ -149,8 +153,7 @@ async def handler(event):
     if weather_command is not None:
         _, city = weather_command
         if not city:
-            await event.edit(ui.weather_usage(language))
-            return
+            city = "اهواز" if language == "fa" else "الأهواز"
 
         await event.edit(
             "⏳ در حال دریافت اطلاعات آب‌وهوا..."
@@ -231,6 +234,7 @@ async def handler(event):
 
         target_id = reply.sender_id
         core.enemy_targets[chat_id].add(target_id)
+        core.save_settings()
         await core.edit_response(event, "حالت دشمن روی کاربر فعال شد ✅")
         return
 
@@ -238,16 +242,19 @@ async def handler(event):
         if chat_id in core.enemy_targets:
             core.enemy_targets.pop(chat_id, None)
             core.enemy_counters.pop(chat_id, None)
+        core.save_settings()
         await core.edit_response(event, "حالت دشمن غیرفعال شد ❌")
         return
 
     if text in core.COMMAND_ALIASES["deleted_on"]:
         core.deleted_save_enabled = True
+        core.save_settings()
         await core.edit_response(event, "ذخیره پیام‌های حذف‌شده روشن شد ✅")
         return
 
     if text in core.COMMAND_ALIASES["deleted_off"]:
         core.deleted_save_enabled = False
+        core.save_settings()
         await core.edit_response(event, "ذخیره پیام‌های حذف‌شده خاموش شد")
         return
 
@@ -257,6 +264,7 @@ async def handler(event):
             return
 
         core.timed_save_enabled = True
+        core.save_settings()
         await core.edit_response(event, "ذخیره پیام‌های زمان‌دار روشن شد ✅")
         return
 
@@ -266,6 +274,7 @@ async def handler(event):
             return
 
         core.timed_save_enabled = False
+        core.save_settings()
         await core.edit_response(event, "ذخیره پیام‌های زمان‌دار خاموش شد")
         return
 
@@ -374,11 +383,15 @@ async def handler(event):
         core.tasks[chat_id] = asyncio.create_task(
             services.meow_loop(chat_id)
         )
+        core.meow_chats.add(chat_id)
+        core.save_settings()
 
         await core.edit_response(event, "میو خودکار روشن")
 
     elif text in core.COMMAND_ALIASES["meow_off"]:
         task = core.tasks.pop(chat_id, None)
+        core.meow_chats.discard(chat_id)
+        core.save_settings()
 
         if task:
             task.cancel()

@@ -155,9 +155,10 @@ class WeatherHelpUiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event.edit_kwargs[0]["parse_mode"], "html")
         self.assertIn("🌦 <b>راهنمای هواشناسی</b>", help_text)
         self.assertIn("1️⃣ <b>آب‌وهوای یک شهر</b>", help_text)
-        self.assertIn("<code>.هواشناسی تهران</code>", help_text)
+        self.assertIn("<code>.هواشناسی اهواز</code>", help_text)
+        self.assertNotIn("پیش‌فرض", help_text)
         self.assertIn("2️⃣ <b>مقایسهٔ دو شهر</b>", help_text)
-        self.assertIn("<code>.مقایسه تهران با مشهد</code>", help_text)
+        self.assertIn("<code>.مقایسه اهواز با مشهد</code>", help_text)
         self.assertIn("دمای فعلی", help_text)
         self.assertNotIn("دلیل الطقس", help_text)
 
@@ -171,8 +172,10 @@ class WeatherHelpUiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event.edit_kwargs[0]["parse_mode"], "html")
         self.assertIn("🌦 <b>دليل الطقس</b>", help_text)
         self.assertIn("1️⃣ <b>طقس مدينة واحدة</b>", help_text)
-        self.assertIn("<code>.طقس طهران</code>", help_text)
-        self.assertIn("<code>.مقارنة طهران و مشهد</code>", help_text)
+        self.assertIn("<code>.طقس الأهواز</code>", help_text)
+        self.assertNotIn("الافتراضي", help_text)
+        self.assertNotIn("افتراضياً", help_text)
+        self.assertIn("<code>.مقارنة الأهواز و مشهد</code>", help_text)
         self.assertIn("<code>.تعليم الطقس</code>", help_text)
         self.assertNotIn("راهنمای هواشناسی", help_text)
 
@@ -199,7 +202,7 @@ class MainHelpUiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("<b>ذخیره پیام‌های حذف‌شده</b>", help_text)
         self.assertIn("<code>.دریافت</code>", help_text)
         self.assertIn("<code>.قلب</code>", help_text)
-        self.assertIn("<code>.هواشناسی تهران</code>", help_text)
+        self.assertIn("<code>.هواشناسی اهواز</code>", help_text)
         self.assertNotIn("<b>راهنما</b>:", help_text)
         self.assertNotIn("لوحة أوامر السلف", help_text)
 
@@ -218,7 +221,7 @@ class MainHelpUiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("<b>حفظ الرسائل المحذوفة</b>", help_text)
         self.assertIn("<code>.استلام</code>", help_text)
         self.assertIn("<code>.الب</code>", help_text)
-        self.assertIn("<code>.طقس طهران</code>", help_text)
+        self.assertIn("<code>.طقس الأهواز</code>", help_text)
         self.assertNotIn("<b>المساعدة</b>:", help_text)
         self.assertNotIn("پنل دستورات سلف", help_text)
 
@@ -377,6 +380,72 @@ class AccountManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(output.getvalue().count("=== SELFBOT ACCOUNT MANAGER ==="), 2)
 
 
+class SettingsPersistenceTests(unittest.IsolatedAsyncioTestCase):
+    def test_settings_round_trip_restores_global_and_per_chat_options(self):
+        original_values = (
+            core.current_language,
+            core.self_enabled,
+            core.timed_save_enabled,
+            core.deleted_save_enabled,
+            set(core.meow_chats),
+            {chat_id: set(targets) for chat_id, targets in core.enemy_targets.items()},
+        )
+        try:
+            core.current_language = "ar"
+            core.self_enabled = False
+            core.timed_save_enabled = True
+            core.deleted_save_enabled = True
+            core.meow_chats.clear()
+            core.meow_chats.add(-100123)
+            core.enemy_targets.clear()
+            core.enemy_targets[-100456].add(98765)
+
+            with tempfile.TemporaryDirectory() as temporary_directory:
+                settings_path = Path(temporary_directory) / "settings.json"
+                core.save_settings(settings_path)
+
+                core.current_language = "fa"
+                core.self_enabled = True
+                core.timed_save_enabled = False
+                core.deleted_save_enabled = False
+                core.meow_chats.clear()
+                core.enemy_targets.clear()
+                core.load_settings(settings_path)
+
+            self.assertEqual(core.current_language, "ar")
+            self.assertFalse(core.self_enabled)
+            self.assertTrue(core.timed_save_enabled)
+            self.assertTrue(core.deleted_save_enabled)
+            self.assertEqual(core.meow_chats, {-100123})
+            self.assertEqual(core.enemy_targets[-100456], {98765})
+        finally:
+            (
+                core.current_language,
+                core.self_enabled,
+                core.timed_save_enabled,
+                core.deleted_save_enabled,
+                saved_meow_chats,
+                saved_enemy_targets,
+            ) = original_values
+            core.meow_chats.clear()
+            core.meow_chats.update(saved_meow_chats)
+            core.enemy_targets.clear()
+            core.enemy_targets.update(saved_enemy_targets)
+
+    async def test_language_command_saves_changed_setting(self):
+        event = FakeEvent(".زبان عربی")
+        previous_language = core.current_language
+        try:
+            with patch.object(core, "save_settings") as save_settings:
+                await handlers.handler(event)
+
+            self.assertEqual(core.current_language, "ar")
+            save_settings.assert_called_once_with()
+            self.assertIn("تم تفعيل اللغة العربية", event.edits[-1])
+        finally:
+            core.current_language = previous_language
+
+
 class ApplicationStartupTests(unittest.IsolatedAsyncioTestCase):
     async def test_normal_startup_runs_selfbot_without_account_listing(self):
         startup_order = []
@@ -492,6 +561,27 @@ class WeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
             await handlers.handler(FakeEvent(".هواشناسی تهران"))
         fetch.assert_not_awaited()
 
+    async def test_weather_without_city_uses_ahvaz_by_default(self):
+        core.current_language = "fa"
+        persian_event = FakeEvent(".هواشناسی")
+        with patch.object(
+            weather,
+            "fetch_weather",
+            new=AsyncMock(return_value=make_report("Ahvaz", 35, 20, 4)),
+        ) as fetch:
+            await handlers.handler(persian_event)
+        fetch.assert_awaited_once_with("اهواز", "fa")
+
+        core.current_language = "ar"
+        arabic_event = FakeEvent(".طقس")
+        with patch.object(
+            weather,
+            "fetch_weather",
+            new=AsyncMock(return_value=make_report("Ahvaz", 35, 20, 4)),
+        ) as fetch:
+            await handlers.handler(arabic_event)
+        fetch.assert_awaited_once_with("الأهواز", "ar")
+
     async def test_comparison_fetches_both_cities_and_shows_localized_result(self):
         core.current_language = "fa"
         event = FakeEvent(".مقایسه تهران با مشهد")
@@ -574,14 +664,14 @@ class WeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         core.current_language = "fa"
         persian_event = FakeEvent(".آموزش")
         await ui.show_weather_help(persian_event)
-        self.assertIn(".هواشناسی تهران", persian_event.edits[0])
-        self.assertIn(".مقایسه تهران با مشهد", persian_event.edits[0])
+        self.assertIn(".هواشناسی اهواز", persian_event.edits[0])
+        self.assertIn(".مقایسه اهواز با مشهد", persian_event.edits[0])
 
         core.current_language = "ar"
         arabic_event = FakeEvent(".تعليم")
         await ui.show_weather_help(arabic_event)
-        self.assertIn(".طقس طهران", arabic_event.edits[0])
-        self.assertIn(".مقارنة طهران و مشهد", arabic_event.edits[0])
+        self.assertIn(".طقس الأهواز", arabic_event.edits[0])
+        self.assertIn(".مقارنة الأهواز و مشهد", arabic_event.edits[0])
         self.assertNotIn(".آموزش", arabic_event.edits[0])
 
 

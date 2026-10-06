@@ -18,7 +18,7 @@ async def main():
         await account_manager.list_accounts(wait_for_back=False)
         return
 
-    from . import handlers  # Register event handlers before starting the client.
+    from . import handlers, services  # Register handlers before client startup.
 
     await core.client.start()
     try:
@@ -36,6 +36,10 @@ async def main():
         print(
             "SelfBot is running, but account information could not be saved: "
             f"{type(error).__name__}"
+        )
+    for chat_id in core.meow_chats:
+        core.tasks[chat_id] = asyncio.create_task(
+            services.meow_loop(chat_id)
         )
     print("SelfBot is running...")
     await core.client.run_until_disconnected()

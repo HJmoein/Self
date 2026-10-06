@@ -32,6 +32,10 @@ number, Telegram login code, and two-step verification password when enabled.
 Account sessions and account metadata are stored locally and excluded from Git;
 session filenames are not shown in account listings.
 
+Selfbot settings (selected language and enabled features) are saved locally
+when changed and restored on the next start. Per-chat meow and enemy settings
+are also restored; meow tasks resume after the bot connects.
+
 ## Tests
 
 Run the automated test suite from the project root:

@@ -1,9 +1,11 @@
 import asyncio
+import json
 import logging
 import os
 import re
 from collections import defaultdict, deque
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError
@@ -37,16 +39,130 @@ except ValueError as error:
 
 client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 logger = logging.getLogger(__name__)
+SETTINGS_PATH = Path(__file__).resolve().parent.parent / ".selfbot_settings.json"
 tasks = {}
 self_enabled = True
 current_language = "fa"
 timed_save_enabled = False
 deleted_save_enabled = False
+meow_chats = set()
+enemy_targets = defaultdict(set)
 message_cache = defaultdict(lambda: deque(maxlen=1000))
 message_index = defaultdict(set)
 deleted_messages = defaultdict(list)
-enemy_targets = defaultdict(set)
 enemy_counters = defaultdict(int)
+
+
+def load_settings(path=None):
+    global current_language, deleted_save_enabled, self_enabled
+    global timed_save_enabled
+
+    settings_path = Path(path) if path is not None else SETTINGS_PATH
+    try:
+        with settings_path.open(encoding="utf-8") as settings_file:
+            settings = json.load(settings_file)
+    except FileNotFoundError:
+        return
+    except (OSError, json.JSONDecodeError) as error:
+        logger.error(
+            "Could not load Selfbot settings from %s: %s",
+            settings_path,
+            type(error).__name__,
+            exc_info=True,
+        )
+        raise RuntimeError(
+            f"Could not load saved settings from {settings_path}"
+        ) from error
+
+    if not isinstance(settings, dict):
+        raise RuntimeError(f"Invalid settings format in {settings_path}")
+
+    language = settings.get("current_language", "fa")
+    boolean_settings = {
+        "self_enabled": settings.get("self_enabled", True),
+        "timed_save_enabled": settings.get("timed_save_enabled", False),
+        "deleted_save_enabled": settings.get("deleted_save_enabled", False),
+    }
+    if not isinstance(language, str) or language not in {"fa", "ar"} or any(
+        not isinstance(value, bool) for value in boolean_settings.values()
+    ):
+        raise RuntimeError(f"Invalid settings values in {settings_path}")
+
+    raw_meow_chats = settings.get("meow_chats", [])
+    raw_enemy_targets = settings.get("enemy_targets", {})
+    if not isinstance(raw_meow_chats, list) or not isinstance(
+        raw_enemy_targets, dict
+    ):
+        raise RuntimeError(f"Invalid chat settings in {settings_path}")
+
+    def valid_id(value):
+        return isinstance(value, int) and not isinstance(value, bool)
+
+    if not all(valid_id(chat_id) for chat_id in raw_meow_chats):
+        raise RuntimeError(f"Invalid meow chat IDs in {settings_path}")
+    restored_enemies = {}
+    for chat_id, target_ids in raw_enemy_targets.items():
+        try:
+            numeric_chat_id = int(chat_id)
+        except (TypeError, ValueError) as error:
+            raise RuntimeError(
+                f"Invalid enemy chat ID in {settings_path}"
+            ) from error
+        if (
+            not isinstance(target_ids, list)
+            or not all(valid_id(target_id) for target_id in target_ids)
+        ):
+            raise RuntimeError(f"Invalid enemy targets in {settings_path}")
+        restored_enemies[numeric_chat_id] = set(target_ids)
+
+    current_language = language
+    self_enabled = boolean_settings["self_enabled"]
+    timed_save_enabled = boolean_settings["timed_save_enabled"]
+    deleted_save_enabled = boolean_settings["deleted_save_enabled"]
+    meow_chats.clear()
+    meow_chats.update(raw_meow_chats)
+    enemy_targets.clear()
+    enemy_targets.update(restored_enemies)
+
+
+def save_settings(path=None):
+    settings_path = Path(path) if path is not None else SETTINGS_PATH
+    settings = {
+        "current_language": current_language,
+        "self_enabled": self_enabled,
+        "timed_save_enabled": timed_save_enabled,
+        "deleted_save_enabled": deleted_save_enabled,
+        "meow_chats": sorted(meow_chats),
+        "enemy_targets": {
+            str(chat_id): sorted(target_ids)
+            for chat_id, target_ids in enemy_targets.items()
+            if target_ids
+        },
+    }
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=settings_path.parent,
+            prefix=f"{settings_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as settings_file:
+            temporary_path = Path(settings_file.name)
+            json.dump(settings, settings_file, ensure_ascii=False, indent=2)
+            settings_file.write("\n")
+        os.replace(temporary_path, settings_path)
+        if os.name == "posix":
+            settings_path.chmod(0o600)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+
+
+load_settings()
+
 ENEMY_INSULTS = [
     "منیوچ الخرا",
     "الزربا",
