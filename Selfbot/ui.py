@@ -35,6 +35,10 @@ async def show_help(event):
             "📥 <b>الاستلام</b>\n"
             "├ <code>.تحميل قصة رابط</code> استلام قصة\n"
             "└ <code>.استلام</code> بالرد على رسالة من قناة أو مجموعة\n\n"
+            "🌦 <b>الطقس</b>\n"
+            "├ <code>.طقس طهران</code> طقس مدينة\n"
+            "├ <code>.مقارنة طهران و مشهد</code> مقارنة مدينتين\n"
+            "└ <code>.تعليم</code> شرح استخدام الطقس\n\n"
             "💗 <b>الأنيميشن</b>\n"
             "└ <code>.الب</code> عرض قلب متحرك بالألوان"
         )
@@ -67,10 +71,101 @@ async def show_help(event):
             "📥 <b>دریافت</b>\n"
             "├ <code>.دانلود استوری لینک</code>\n"
             "└ <code>.دریافت</code> دریافت پیام از کانال/گروه با ریپلای\n\n"
+            "🌦 <b>هواشناسی</b>\n"
+            "├ <code>.هواشناسی تهران</code> دریافت وضعیت یک شهر\n"
+            "├ <code>.مقایسه تهران با مشهد</code> مقایسه دو شهر\n"
+            "└ <code>.آموزش</code> راهنمای کامل هواشناسی\n\n"
             "💗 <b>انیمیشن</b>\n"
-            "└ <code>.انیمیشن</code> نمایش قلب رنگی متحرک"
+            "└ <code>.قلب</code> نمایش قلب رنگی متحرک"
         )
 
+    await event.edit(help_text, parse_mode="html")
+
+
+def weather_usage(language):
+    if language == "ar":
+        return "اكتب اسم المدينة بعد الأمر، مثال: .طقس طهران"
+    return "نام شهر را بعد از دستور بنویسید؛ مثال: .هواشناسی تهران"
+
+
+def weather_comparison_usage(language):
+    if language == "ar":
+        return (
+            "اكتب اسمي المدينتين وافصل بينهما بكلمة «و»، مثال:\n"
+            ".مقارنة طهران و مشهد"
+        )
+    return (
+        "نام دو شهر را با «و» یا «با» جدا کنید؛ مثال:\n"
+        ".مقایسه تهران با مشهد"
+    )
+
+
+def parse_weather_comparison(arguments, language):
+    arguments = arguments.strip()
+    if not arguments:
+        return None
+
+    for separator in (" با ", " و ", " مع ", " مقابل ", " vs ", " versus "):
+        if separator in arguments:
+            first, second = arguments.split(separator, 1)
+            cities = (first.strip(), second.strip())
+            return cities if all(cities) else None
+
+    parts = arguments.split(maxsplit=1)
+    if len(parts) != 2:
+        return None
+
+    first, second = parts
+    if language == "ar" and second.startswith("و") and len(second) > 1:
+        second = second[1:].strip()
+    return (first, second) if first and second else None
+
+
+async def show_weather_help(event):
+    if core.current_language == "ar":
+        help_text = (
+            "🌦 <b>دليل الطقس</b>\n\n"
+            "تعرض ميزة الطقس درجة الحرارة الحالية وحالة الطقس والصغرى والعظمى "
+            "والرطوبة وسرعة الرياح ومعلومات إضافية عند توفرها.\n\n"
+            "<b>طقس مدينة واحدة</b>\n"
+            "اكتب الأمر ثم اسم المدينة:\n"
+            "• <code>.طقس طهران</code>\n"
+            "• <code>.الطقس London</code>\n\n"
+            "<b>مقارنة مدينتين</b>\n"
+            "افصل اسمي المدينتين بكلمة «و» أو «مع»:\n"
+            "• <code>.مقارنة طهران و مشهد</code>\n"
+            "• <code>.مقارنة الطقس London مع Paris</code>\n"
+            "تعرض المقارنة بيانات المدينتين وتوضح الأعلى حرارة ورطوبة وسرعة رياح.\n\n"
+            "<b>الأوامر والبدائل</b>\n"
+            "• الطقس: <code>.طقس</code> أو <code>.الطقس</code>\n"
+            "• المقارنة: <code>.مقارنة</code> أو <code>.مقارنة الطقس</code>\n"
+            "• هذا الدليل: <code>.تعليم</code> أو <code>.تعليم الطقس</code>\n\n"
+            "يمكن كتابة اسم المدينة بالعربية أو بالإنجليزية. اكتب الاسم بوضوح، "
+            "واستخدم كلمة فصل بين المدينتين، خصوصاً إذا كان اسم المدينة يتكوّن "
+            "من أكثر من كلمة. إذا لم تظهر المدينة، جرّب كتابتها بالإنجليزية."
+        )
+    else:
+        help_text = (
+            "🌦 <b>آموزش هواشناسی</b>\n\n"
+            "با هواشناسی می‌توانید دمای فعلی، وضعیت آسمان، کمینه و بیشینه، "
+            "رطوبت، سرعت باد و اطلاعات تکمیلی را دریافت کنید.\n\n"
+            "<b>هواشناسی یک شهر</b>\n"
+            "دستور را بنویسید و نام شهر را بعد از آن وارد کنید:\n"
+            "• <code>.هواشناسی تهران</code>\n"
+            "• <code>.هوا London</code>\n\n"
+            "<b>مقایسه دو شهر</b>\n"
+            "نام شهرها را با «با» یا «و» جدا کنید:\n"
+            "• <code>.مقایسه تهران با مشهد</code>\n"
+            "• <code>.مقایسه هوا New York و London</code>\n"
+            "مقایسه، اطلاعات هر دو شهر و تفاوت دما، رطوبت و سرعت باد را نشان می‌دهد.\n\n"
+            "<b>دستورها و نام‌های جایگزین</b>\n"
+            "• هواشناسی: <code>.هواشناسی</code> یا <code>.هوا</code>\n"
+            "• مقایسه: <code>.مقایسه</code> یا <code>.مقایسه هوا</code>\n"
+            "• این راهنما: <code>.آموزش</code> یا <code>.آموزش هواشناسی</code>\n\n"
+            "نام شهر را به فارسی یا انگلیسی وارد کنید. برای نام‌های چندبخشی، "
+            "بین دو شهر حتماً از «با» یا «و» استفاده کنید. اگر شهری پیدا نشد، "
+            "املای نام را بررسی کنید یا نام انگلیسی آن را امتحان کنید."
+        )
     await event.edit(help_text, parse_mode="html")
 
 

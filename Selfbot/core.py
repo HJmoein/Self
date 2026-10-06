@@ -25,7 +25,7 @@ for env_line in env_path.read_text(encoding="utf-8").splitlines():
 
 _api_id = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
-SESSION_NAME = os.getenv("SESSION_NAME", "meow_session")
+SESSION_NAME = os.getenv("SESSION_NAME", "self")
 
 if not _api_id or not API_HASH:
     raise RuntimeError("Set API_ID and API_HASH in the .env file before running Main.py.")
@@ -68,6 +68,12 @@ STORY_COMMAND = "دانلود استوری"
 ARABIC_STORY_COMMAND = "تحميل قصة"
 PERSIAN_HELP_COMMANDS = ("راهنما", "دستورات")
 ARABIC_HELP_COMMANDS = ("مساعدة", "الأوامر")
+PERSIAN_WEATHER_COMMANDS = ("هواشناسی", "هوا")
+PERSIAN_WEATHER_COMPARE_COMMANDS = ("مقایسه هوا", "مقایسه")
+PERSIAN_WEATHER_HELP_COMMANDS = ("آموزش هواشناسی", "آموزش")
+ARABIC_WEATHER_COMMANDS = ("الطقس", "طقس")
+ARABIC_WEATHER_COMPARE_COMMANDS = ("مقارنة الطقس", "مقارنة")
+ARABIC_WEATHER_HELP_COMMANDS = ("تعليم الطقس", "تعليم")
 COMMAND_ALIASES = {
     "self_on": ("سلف روشن", "سلف تشغيل", "السلف تشغيل"),
     "self_off": ("سلف خاموش", "سلف إيقاف", "السلف إيقاف"),
@@ -110,6 +116,72 @@ COMMAND_ALIASES = {
     "story_reply": ("استوری دانلود", "دانلود استوری", "تحميل قصة", "تنزيل قصة"),
     "animation": ("انیمیشن", "قلب", "الب", "القلب", "الانيميشن", "الأنيميشن"),
 }
+PERSIAN_COMMAND_ALIASES = frozenset(
+    (
+        "سلف روشن",
+        "سلف خاموش",
+        "دشمن",
+        "دشمن روشن",
+        "دشمن خاموش",
+        "سیو خودکار پیام حذف شده روشن",
+        "سیو خودکار پیام های حذف شده روشن",
+        "سیو خودکار پیام‌های حذف‌شده روشن",
+        "سیو خودکار پیام حذف شده خاموش",
+        "سیو خودکار پیام های حذف شده خاموش",
+        "سیو خودکار پیام‌های حذف‌شده خاموش",
+        "سیو خودکار روشن",
+        "سیو خودکار تایم دار روشن",
+        "سیو خودکار خاموش",
+        "سیو خودکار تایم دار خاموش",
+        *PERSIAN_HELP_COMMANDS,
+        "آیدی",
+        "ایدی",
+        "ایدیم",
+        "آیدی من",
+        "ایدی من",
+        "دریافت",
+        STORY_COMMAND,
+        "استوری دانلود",
+        "میو روشن",
+        "میو خاموش",
+        "پینگ",
+        "انیمیشن",
+        "قلب",
+    )
+)
+
+
+def is_persian_command(text):
+    if text in PERSIAN_COMMAND_ALIASES:
+        return True
+
+    if any(
+        text.startswith(command + " ")
+        for command in ("دریافت", STORY_COMMAND, "استوری دانلود")
+    ):
+        return True
+
+    return any(
+        text == command or text.startswith(command + " ")
+        for commands in (
+            PERSIAN_WEATHER_COMMANDS,
+            PERSIAN_WEATHER_COMPARE_COMMANDS,
+            PERSIAN_WEATHER_HELP_COMMANDS,
+        )
+        for command in commands
+    )
+
+
+def is_arabic_weather_command(text):
+    return any(
+        text == command or text.startswith(command + " ")
+        for commands in (
+            ARABIC_WEATHER_COMMANDS,
+            ARABIC_WEATHER_COMPARE_COMMANDS,
+            ARABIC_WEATHER_HELP_COMMANDS,
+        )
+        for command in commands
+    )
 
 
 def localized_text(text):

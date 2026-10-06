@@ -6,7 +6,7 @@ import time
 
 from telethon import events
 
-from . import core, services, ui
+from . import core, services, ui, weather
 
 
 @core.client.on(events.NewMessage)
@@ -98,6 +98,15 @@ async def handler(event):
 
     text = text[1:].strip()
 
+    if (
+        core.current_language == "ar"
+        and core.is_persian_command(text)
+        and text not in core.COMMAND_ALIASES["language_fa"]
+    ):
+        return
+    if core.current_language == "fa" and core.is_arabic_weather_command(text):
+        return
+
     if text in core.COMMAND_ALIASES["self_on"]:
         core.self_enabled = True
         await core.edit_response(event, "سلف روشن شد ✅")
@@ -119,6 +128,98 @@ async def handler(event):
         return
 
     if not core.self_enabled:
+        return
+
+    language = core.current_language
+    weather_help_commands = (
+        core.PERSIAN_WEATHER_HELP_COMMANDS
+        if language == "fa"
+        else core.ARABIC_WEATHER_HELP_COMMANDS
+    )
+    if text in weather_help_commands:
+        await ui.show_weather_help(event)
+        return
+
+    weather_command = weather.match_command(
+        text,
+        core.PERSIAN_WEATHER_COMMANDS
+        if language == "fa"
+        else core.ARABIC_WEATHER_COMMANDS,
+    )
+    if weather_command is not None:
+        _, city = weather_command
+        if not city:
+            await event.edit(ui.weather_usage(language))
+            return
+
+        await event.edit(
+            "⏳ در حال دریافت اطلاعات آب‌وهوا..."
+            if language == "fa"
+            else "⏳ جارٍ جلب بيانات الطقس..."
+        )
+        try:
+            report = await weather.fetch_weather(city, language)
+        except weather.WeatherError as error:
+            if isinstance(error, weather.WeatherServiceError):
+                core.logger.warning(
+                    "Weather lookup failed in chat_id=%s: %s",
+                    chat_id,
+                    type(error).__name__,
+                    exc_info=True,
+                )
+            await event.edit(weather.error_message(error, language))
+            return
+
+        await event.edit(weather.format_weather(report, language))
+        return
+
+    comparison_command = weather.match_command(
+        text,
+        core.PERSIAN_WEATHER_COMPARE_COMMANDS
+        if language == "fa"
+        else core.ARABIC_WEATHER_COMPARE_COMMANDS,
+    )
+    if comparison_command is not None:
+        _, city_arguments = comparison_command
+        cities = ui.parse_weather_comparison(city_arguments, language)
+        if cities is None:
+            await event.edit(ui.weather_comparison_usage(language))
+            return
+
+        await event.edit(
+            "⏳ در حال مقایسه آب‌وهوای دو شهر..."
+            if language == "fa"
+            else "⏳ جارٍ مقارنة الطقس في المدينتين..."
+        )
+        results = await asyncio.gather(
+            weather.fetch_weather(cities[0], language),
+            weather.fetch_weather(cities[1], language),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            if isinstance(result, weather.WeatherError):
+                if isinstance(result, weather.WeatherServiceError):
+                    core.logger.warning(
+                        "Weather comparison failed in chat_id=%s: %s",
+                        chat_id,
+                        type(result).__name__,
+                        exc_info=(type(result), result, result.__traceback__),
+                    )
+                await event.edit(weather.error_message(result, language))
+                return
+            if isinstance(result, Exception):
+                core.logger.error(
+                    "Unexpected weather comparison failure in chat_id=%s",
+                    chat_id,
+                    exc_info=(type(result), result, result.__traceback__),
+                )
+                await event.edit(weather.error_message(weather.WeatherServiceError(), language))
+                return
+
+        first, second = results
+        await event.edit(weather.format_comparison(first, second, language))
         return
 
     # دستور فعال‌سازی و غیرفعال‌سازی حالت دشمن
