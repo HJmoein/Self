@@ -11,9 +11,11 @@ class FakeEvent:
         self.raw_text = raw_text
         self.chat_id = 123
         self.edits = []
+        self.edit_kwargs = []
 
     async def edit(self, text, **kwargs):
         self.edits.append(text)
+        self.edit_kwargs.append(kwargs)
 
 
 def make_report(city, temperature, humidity, wind):
@@ -131,6 +133,91 @@ class WeatherServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("فرق سرعة الرياح", arabic)
 
 
+class WeatherHelpUiTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.previous_language = core.current_language
+
+    async def asyncTearDown(self):
+        core.current_language = self.previous_language
+
+    async def test_persian_help_has_readable_sections_and_examples(self):
+        core.current_language = "fa"
+        event = FakeEvent(".آموزش")
+
+        await ui.show_weather_help(event)
+        help_text = event.edits[0]
+
+        self.assertEqual(event.edit_kwargs[0]["parse_mode"], "html")
+        self.assertIn("🌦 <b>راهنمای هواشناسی</b>", help_text)
+        self.assertIn("1️⃣ <b>آب‌وهوای یک شهر</b>", help_text)
+        self.assertIn("<code>.هواشناسی تهران</code>", help_text)
+        self.assertIn("2️⃣ <b>مقایسهٔ دو شهر</b>", help_text)
+        self.assertIn("<code>.مقایسه تهران با مشهد</code>", help_text)
+        self.assertIn("دمای فعلی", help_text)
+        self.assertNotIn("دلیل الطقس", help_text)
+
+    async def test_arabic_help_is_localized_and_lists_arabic_aliases(self):
+        core.current_language = "ar"
+        event = FakeEvent(".تعليم")
+
+        await ui.show_weather_help(event)
+        help_text = event.edits[0]
+
+        self.assertEqual(event.edit_kwargs[0]["parse_mode"], "html")
+        self.assertIn("🌦 <b>دليل الطقس</b>", help_text)
+        self.assertIn("1️⃣ <b>طقس مدينة واحدة</b>", help_text)
+        self.assertIn("<code>.طقس طهران</code>", help_text)
+        self.assertIn("<code>.مقارنة طهران و مشهد</code>", help_text)
+        self.assertIn("<code>.تعليم الطقس</code>", help_text)
+        self.assertNotIn("راهنمای هواشناسی", help_text)
+
+
+class MainHelpUiTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.previous_language = core.current_language
+
+    async def asyncTearDown(self):
+        core.current_language = self.previous_language
+
+    async def test_persian_main_help_groups_self_commands(self):
+        core.current_language = "fa"
+        event = FakeEvent(".راهنما")
+
+        await ui.show_help(event)
+        help_text = event.edits[0]
+
+        self.assertEqual(event.edit_kwargs[0]["parse_mode"], "html")
+        self.assertTrue(help_text.startswith("╭──────────────╮"))
+        self.assertIn("│ <b>دستورات سلف</b> │", help_text)
+        self.assertIn("⚙ <b>سلف</b>", help_text)
+        self.assertIn("<code>.سلف روشن</code>", help_text)
+        self.assertIn("<b>ذخیره پیام‌های حذف‌شده</b>", help_text)
+        self.assertIn("<code>.دریافت</code>", help_text)
+        self.assertIn("<code>.قلب</code>", help_text)
+        self.assertIn("<code>.هواشناسی تهران</code>", help_text)
+        self.assertNotIn("<b>راهنما</b>:", help_text)
+        self.assertNotIn("لوحة أوامر السلف", help_text)
+
+    async def test_arabic_main_help_groups_self_commands(self):
+        core.current_language = "ar"
+        event = FakeEvent(".مساعدة")
+
+        await ui.show_help(event)
+        help_text = event.edits[0]
+
+        self.assertEqual(event.edit_kwargs[0]["parse_mode"], "html")
+        self.assertTrue(help_text.startswith("╭──────────────╮"))
+        self.assertIn("│ <b>أوامر السلف</b> │", help_text)
+        self.assertIn("⚙ <b>السلف</b>", help_text)
+        self.assertIn("<code>.سلف تشغيل</code>", help_text)
+        self.assertIn("<b>حفظ الرسائل المحذوفة</b>", help_text)
+        self.assertIn("<code>.استلام</code>", help_text)
+        self.assertIn("<code>.الب</code>", help_text)
+        self.assertIn("<code>.طقس طهران</code>", help_text)
+        self.assertNotIn("<b>المساعدة</b>:", help_text)
+        self.assertNotIn("پنل دستورات سلف", help_text)
+
+
 class WeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.previous_language = core.current_language
@@ -149,7 +236,7 @@ class WeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         ) as fetch:
             await handlers.handler(persian_event)
         fetch.assert_awaited_once_with("تهران", "fa")
-        self.assertIn("دمای فعلی", persian_event.edits[-1])
+        self.assertIn("دمای فعلی: 20.0°C", persian_event.edits[-1])
 
         core.current_language = "ar"
         arabic_event = FakeEvent(".طقس طهران")
@@ -158,7 +245,7 @@ class WeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         ) as fetch:
             await handlers.handler(arabic_event)
         fetch.assert_awaited_once_with("طهران", "ar")
-        self.assertIn("الحرارة الحالية", arabic_event.edits[-1])
+        self.assertIn("الحرارة الحالية: 20.0°C", arabic_event.edits[-1])
 
         with patch.object(weather, "fetch_weather", new=AsyncMock()) as fetch:
             core.current_language = "fa"

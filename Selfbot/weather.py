@@ -302,9 +302,7 @@ def format_comparison(first, second, language):
             )
     else:
         summary.append(
-            "• اختلاف دما: اطلاعات کافی نیست"
-            if fa
-            else "• فرق درجة الحرارة: لا تتوفر بيانات كافية"
+            "اطلاعات کافی نیست" if fa else "لا تتوفر بيانات كافية"
         )
 
     heading = "📊 مقایسه آب‌وهوا" if fa else "📊 مقارنة الطقس"
