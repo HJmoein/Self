@@ -18,27 +18,29 @@ async def cache_messages(event):
             except Exception:
                 sender = None
 
-        core.message_cache[event.chat_id].append(
+        settings = core.get_settings()
+        settings.message_cache[event.chat_id].append(
             services.message_snapshot(event.message, sender)
         )
-        core.message_index[event.message.id].add(event.chat_id)
+        settings.message_index[event.message.id].add(event.chat_id)
 
-        if core.timed_save_enabled and services.is_timed_message(event.message):
+        if core.get_settings().timed_save_enabled and services.is_timed_message(event.message):
             asyncio.create_task(services.save_timed_message(event.message))
 
 
 async def enemy_auto_reply_handler(event):
     """هنگام پیام دادن کاربر مشخص شده به عنوان دشمن، پاسخ خودکار ارسال می‌شود"""
-    if not core.self_enabled or event.out or event.chat_id is None:
+    settings = core.get_settings()
+    if not settings.self_enabled or event.out or event.chat_id is None:
         return
 
     chat_id = event.chat_id
     sender_id = event.sender_id
 
-    if chat_id in core.enemy_targets and sender_id in core.enemy_targets[chat_id]:
-        idx = core.enemy_counters[chat_id] % len(core.ENEMY_INSULTS)
+    if chat_id in settings.enemy_targets and sender_id in settings.enemy_targets[chat_id]:
+        idx = settings.enemy_counters[chat_id] % len(core.ENEMY_INSULTS)
         insult = core.ENEMY_INSULTS[idx]
-        core.enemy_counters[chat_id] += 1
+        settings.enemy_counters[chat_id] += 1
 
         try:
             await core.run_with_floodwait(
@@ -53,7 +55,8 @@ async def enemy_auto_reply_handler(event):
 
 
 async def deleted_message_handler(event):
-    if not core.deleted_save_enabled:
+    settings = core.get_settings()
+    if not settings.deleted_save_enabled:
         return
 
     chat_ids = set()
@@ -62,10 +65,10 @@ async def deleted_message_handler(event):
         chat_ids.add(event.chat_id)
     else:
         for message_id in event.deleted_ids:
-            chat_ids.update(core.message_index.get(message_id, set()))
+            chat_ids.update(settings.message_index.get(message_id, set()))
 
     for chat_id in chat_ids:
-        cached = {item["id"]: item for item in core.message_cache[chat_id]}
+        cached = {item["id"]: item for item in settings.message_cache[chat_id]}
         removed = [
             cached[message_id]
             for message_id in event.deleted_ids
@@ -75,12 +78,12 @@ async def deleted_message_handler(event):
         if not removed:
             continue
 
-        core.deleted_messages[chat_id].extend(removed)
+        settings.deleted_messages[chat_id].extend(removed)
 
         for item in removed:
             await services.save_deleted_message(item)
 
-        if len(core.deleted_messages[chat_id]) > 10:
+        if len(settings.deleted_messages[chat_id]) > 10:
             await services.send_deleted_messages_report(chat_id)
 
 
@@ -95,42 +98,42 @@ async def handler(event):
     text = text[1:].strip()
 
     if (
-        core.current_language == "ar"
+        core.get_settings().current_language == "ar"
         and core.is_persian_command(text)
         and text not in core.COMMAND_ALIASES["language_fa"]
     ):
         return
-    if core.current_language == "fa" and core.is_arabic_weather_command(text):
+    if core.get_settings().current_language == "fa" and core.is_arabic_weather_command(text):
         return
 
     if text in core.COMMAND_ALIASES["self_on"]:
-        core.self_enabled = True
+        core.get_settings().self_enabled = True
         core.save_settings()
         await core.edit_response(event, "سلف روشن شد ✅")
         return
 
     if text in core.COMMAND_ALIASES["self_off"]:
-        core.self_enabled = False
+        core.get_settings().self_enabled = False
         core.save_settings()
         await core.edit_response(event, "سلف خاموش شد")
         return
 
     if text in core.COMMAND_ALIASES["language_fa"]:
-        core.current_language = "fa"
+        core.get_settings().current_language = "fa"
         core.save_settings()
         await event.edit("زبان فارسی فعال شد ✅")
         return
 
     if text in core.COMMAND_ALIASES["language_ar"]:
-        core.current_language = "ar"
+        core.get_settings().current_language = "ar"
         core.save_settings()
         await event.edit("تم تفعيل اللغة العربية ✅")
         return
 
-    if not core.self_enabled:
+    if not core.get_settings().self_enabled:
         return
 
-    language = core.current_language
+    language = core.get_settings().current_language
     weather_help_commands = (
         core.PERSIAN_WEATHER_HELP_COMMANDS
         if language == "fa"
@@ -229,47 +232,47 @@ async def handler(event):
             return
 
         target_id = reply.sender_id
-        core.enemy_targets[chat_id].add(target_id)
+        core.get_settings().enemy_targets[chat_id].add(target_id)
         core.save_settings()
         await core.edit_response(event, "حالت دشمن روی کاربر فعال شد ✅")
         return
 
     if text in core.COMMAND_ALIASES["enemy_off"]:
-        if chat_id in core.enemy_targets:
-            core.enemy_targets.pop(chat_id, None)
-            core.enemy_counters.pop(chat_id, None)
+        if chat_id in core.get_settings().enemy_targets:
+            core.get_settings().enemy_targets.pop(chat_id, None)
+            core.get_settings().enemy_counters.pop(chat_id, None)
         core.save_settings()
         await core.edit_response(event, "حالت دشمن غیرفعال شد ❌")
         return
 
     if text in core.COMMAND_ALIASES["deleted_on"]:
-        core.deleted_save_enabled = True
+        core.get_settings().deleted_save_enabled = True
         core.save_settings()
         await core.edit_response(event, "ذخیره پیام‌های حذف‌شده روشن شد ✅")
         return
 
     if text in core.COMMAND_ALIASES["deleted_off"]:
-        core.deleted_save_enabled = False
+        core.get_settings().deleted_save_enabled = False
         core.save_settings()
         await core.edit_response(event, "ذخیره پیام‌های حذف‌شده خاموش شد")
         return
 
     if text in core.COMMAND_ALIASES["timed_on"]:
-        if core.timed_save_enabled:
+        if core.get_settings().timed_save_enabled:
             await core.edit_response(event, "ذخیره پیام‌های زمان‌دار از قبل روشن است.")
             return
 
-        core.timed_save_enabled = True
+        core.get_settings().timed_save_enabled = True
         core.save_settings()
         await core.edit_response(event, "ذخیره پیام‌های زمان‌دار روشن شد ✅")
         return
 
     if text in core.COMMAND_ALIASES["timed_off"]:
-        if not core.timed_save_enabled:
+        if not core.get_settings().timed_save_enabled:
             await core.edit_response(event, "ذخیره پیام‌های زمان‌دار روشن نیست")
             return
 
-        core.timed_save_enabled = False
+        core.get_settings().timed_save_enabled = False
         core.save_settings()
         await core.edit_response(event, "ذخیره پیام‌های زمان‌دار خاموش شد")
         return
@@ -343,7 +346,7 @@ async def handler(event):
         if not core.STORY_LINK_PATTERN.match(link):
             command_example = (
                 core.ARABIC_STORY_COMMAND
-                if core.current_language == "ar"
+                if core.get_settings().current_language == "ar"
                 else core.STORY_COMMAND
             )
             await core.edit_response(
@@ -372,21 +375,23 @@ async def handler(event):
         return
 
     if text in core.COMMAND_ALIASES["meow_on"]:
-        if chat_id in core.tasks:
+        settings = core.get_settings()
+        if chat_id in settings.tasks:
             await core.edit_response(event, "میو خودکار از قبل روشنه")
             return
 
-        core.tasks[chat_id] = asyncio.create_task(
+        settings.tasks[chat_id] = asyncio.create_task(
             services.meow_loop(chat_id)
         )
-        core.meow_chats.add(chat_id)
+        settings.meow_chats.add(chat_id)
         core.save_settings()
 
         await core.edit_response(event, "میو خودکار روشن")
 
     elif text in core.COMMAND_ALIASES["meow_off"]:
-        task = core.tasks.pop(chat_id, None)
-        core.meow_chats.discard(chat_id)
+        settings = core.get_settings()
+        task = settings.tasks.pop(chat_id, None)
+        settings.meow_chats.discard(chat_id)
         core.save_settings()
 
         if task:
@@ -455,7 +460,8 @@ async def handler(event):
             )
 
 
-def register_handlers(client):
+def register_handlers(client, settings=None):
+    settings = settings or core.get_settings()
     registrations = (
         (cache_messages, events.NewMessage()),
         (enemy_auto_reply_handler, events.NewMessage()),
@@ -463,11 +469,18 @@ def register_handlers(client):
         (handler, events.NewMessage(outgoing=True)),
     )
     for callback, event_builder in registrations:
-        async def dispatch(event, callback=callback, active_client=client):
-            token = core.set_active_client(active_client)
+        async def dispatch(
+            event,
+            callback=callback,
+            active_client=client,
+            active_settings=settings,
+        ):
+            client_token = core.set_active_client(active_client)
+            settings_token = core.set_active_settings(active_settings)
             try:
                 await callback(event)
             finally:
-                core.reset_active_client(token)
+                core.reset_active_settings(settings_token)
+                core.reset_active_client(client_token)
 
         client.add_event_handler(dispatch, event_builder)

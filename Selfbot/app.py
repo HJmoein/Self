@@ -22,6 +22,8 @@ def _additional_session_names(profiles):
         and name
         and name not in {".", ".."}
         and Path(name).name == name
+        and "\\" not in name
+        and len(name) <= 64
         and name != primary_name
     )
 
@@ -37,8 +39,23 @@ async def main():
     from . import handlers, services  # Register handlers before client startup.
 
     await core.client.start()
-    clients = [(Path(core.SESSION_NAME).stem, core.client)]
+    primary_name = Path(core.SESSION_NAME).stem
+    clients = [
+        (primary_name, core.client, core.get_settings_for(primary_name))
+    ]
     profiles = account_manager._read_account_profiles()
+    try:
+        profiles = account_manager.migrate_named_sessions(profiles)
+    except OSError as error:
+        logger.error(
+            "Could not rename saved account sessions: %s",
+            type(error).__name__,
+            exc_info=True,
+        )
+        print(
+            "Some account sessions could not be renamed; "
+            f"continuing with saved names ({type(error).__name__})."
+        )
     for session_name in _additional_session_names(profiles):
         session_path = account_manager.SESSION_DIRECTORY / f"{session_name}.session"
         if not session_path.is_file():
@@ -57,7 +74,13 @@ async def main():
                 print(f"Could not start account {session_name}: session is not authorized.")
                 await account_client.disconnect()
                 continue
-            clients.append((session_name, account_client))
+            clients.append(
+                (
+                    session_name,
+                    account_client,
+                    core.get_settings_for(session_name),
+                )
+            )
         except Exception as error:
             logger.error(
                 "Could not connect saved account %s: %s",
@@ -72,10 +95,12 @@ async def main():
             if account_client.is_connected():
                 await account_client.disconnect()
 
-    for _, account_client in clients:
-        handlers.register_handlers(account_client)
+    for _, account_client, settings in clients:
+        handlers.register_handlers(account_client, settings)
 
-    for session_name, account_client in clients:
+    for session_name, account_client, settings in clients:
+        client_token = core.set_active_client(account_client)
+        settings_token = core.set_active_settings(settings)
         try:
             user = await account_client.get_me()
             if user is None:
@@ -92,17 +117,39 @@ async def main():
                 f"Account {session_name} is connected, but its profile "
                 f"could not be saved: {type(error).__name__}"
             )
-
-    for chat_id in core.meow_chats:
-        token = core.set_active_client(core.client)
         try:
-            core.tasks[chat_id] = asyncio.create_task(
-                services.meow_loop(chat_id)
+            core.save_settings()
+        except Exception as error:
+            logger.error(
+                "Could not initialize settings for account %s: %s",
+                session_name,
+                type(error).__name__,
+                exc_info=True,
+            )
+            print(
+                f"Account {session_name} is connected, but its settings "
+                f"could not be saved: {type(error).__name__}"
             )
         finally:
-            core.reset_active_client(token)
+            core.reset_active_settings(settings_token)
+            core.reset_active_client(client_token)
+
+    for session_name, account_client, settings in clients:
+        for chat_id in settings.meow_chats:
+            client_token = core.set_active_client(account_client)
+            settings_token = core.set_active_settings(settings)
+            try:
+                settings.tasks[chat_id] = asyncio.create_task(
+                    services.meow_loop(chat_id)
+                )
+            finally:
+                core.reset_active_settings(settings_token)
+                core.reset_active_client(client_token)
     print(f"Connected accounts: {len(clients)}")
     print("SelfBot is running...")
     await asyncio.gather(
-        *(account_client.run_until_disconnected() for _, account_client in clients)
+        *(
+            account_client.run_until_disconnected()
+            for _, account_client, _ in clients
+        )
     )

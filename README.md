@@ -15,7 +15,8 @@ To list accounts, their phone numbers, Telegram IDs, and names separately, run:
 python Bot.py --list-accounts
 ```
 
-To open the English account manager for adding accounts, run:
+To open the English account manager for adding, listing, or deleting accounts,
+run:
 
 ```powershell
 python Bot.py --accounts
@@ -32,10 +33,17 @@ number, Telegram login code, and two-step verification password when enabled.
 Account sessions and account metadata are stored locally and excluded from Git;
 session filenames are not shown in account listings. The bot starts every saved
 account session when it launches, so restart the bot after adding an account.
+To log out a Selfbot account, stop the bot, select `Delete Account` in the
+manager, enter the account's Telegram ID, and confirm with `Yes` (or `Y`).
+Answer `No` (or `N`) to cancel. This logs out only the selected Selfbot session
+and removes its local session/settings; it does not delete the Telegram account.
+The primary account can also be selected by its Telegram ID.
 
-Selfbot settings (selected language and enabled features) are saved locally
-when changed and restored on the next start. Per-chat meow and enemy settings
-are also restored; meow tasks resume after the bot connects.
+Each account has its own session and settings file. Settings such as language,
+enabled features, meow, and enemy targets are saved separately for each account
+and restored on the next start. A separate settings file is created when each
+account starts. Newly added sessions use the account's name; older `account_N`
+sessions are renamed to the saved account name at startup.
 
 ## Tests
 

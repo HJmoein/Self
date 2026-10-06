@@ -6,7 +6,7 @@ from . import core
 
 
 async def show_help(event):
-    if core.current_language == "ar":
+    if core.get_settings().current_language == "ar":
         help_text = (
             "╭──────────────╮\n"
             "│ <b>أوامر السلف</b> │\n"
@@ -116,7 +116,7 @@ def parse_weather_comparison(arguments, language):
 
 
 async def show_weather_help(event):
-    if core.current_language == "ar":
+    if core.get_settings().current_language == "ar":
         help_text = (
             "🌦 <b>دليل الطقس</b>\n"
             "━━━━━━━━━━━━━━━━━━\n"
@@ -210,7 +210,7 @@ async def show_my_id(event):
     username = getattr(user, "username", None)
     username_text = f"@{username}" if username else "نداره"
 
-    if core.current_language == "ar":
+    if core.get_settings().current_language == "ar":
         await event.edit(
             "🆔 <b>معلومات المالك</b>\n\n"
             f"👤 الاسم: {full_name}\n"

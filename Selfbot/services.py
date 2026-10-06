@@ -108,12 +108,12 @@ async def save_deleted_message(item):
 
 
 async def send_deleted_messages_report(chat_id):
-    messages = core.deleted_messages[chat_id]
+    messages = core.get_settings().deleted_messages[chat_id]
 
     if len(messages) <= 10:
         return
 
-    core.deleted_messages[chat_id] = []
+    core.get_settings().deleted_messages[chat_id] = []
     rows = []
 
     for item in messages:
@@ -133,7 +133,7 @@ async def send_deleted_messages_report(chat_id):
         )
 
     report = (
-        f"<!doctype html><html lang=\"{'ar' if core.current_language == 'ar' else 'fa'}\" dir=\"rtl\"><head>"
+        f"<!doctype html><html lang=\"{'ar' if core.get_settings().current_language == 'ar' else 'fa'}\" dir=\"rtl\"><head>"
         f"<meta charset=\"utf-8\"><title>{core.localized_text('پیام‌های حذف‌شده')}</title>"
         "<style>body{font-family:Tahoma,sans-serif;max-width:900px;margin:32px auto;"
         "padding:0 16px;background:#f4f6f8;color:#17202a}article{background:#fff;"
@@ -171,7 +171,7 @@ async def meow_loop(chat_id):
     try:
         while True:
             await asyncio.sleep(300)
-            meow_text = "ميو" if core.current_language == "ar" else "میو"
+            meow_text = "ميو" if core.get_settings().current_language == "ar" else "میو"
             await core.get_client().send_message(chat_id, meow_text)
     except asyncio.CancelledError:
         pass
@@ -535,10 +535,10 @@ async def download_channel_message(chat_id, message=None, link=None, status_mess
 
     try:
         metadata = await get_message_metadata(message)
-        info_text = format_message_metadata(metadata, core.current_language)
+        info_text = format_message_metadata(metadata, core.get_settings().current_language)
         caption_text = metadata["text"]
         media_type = detect_media_type(message)
-        caption_label = "📝 التعليق" if core.current_language == "ar" else "📝 Caption"
+        caption_label = "📝 التعليق" if core.get_settings().current_language == "ar" else "📝 Caption"
 
         if message.media:
             media_caption = (

@@ -5,6 +5,7 @@ import logging
 import os
 import re
 from collections import defaultdict, deque
+from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -42,6 +43,8 @@ client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 logger = logging.getLogger(__name__)
 SETTINGS_PATH = Path(__file__).resolve().parent.parent / ".selfbot_settings.json"
 _active_client = contextvars.ContextVar("selfbot_active_client", default=None)
+_active_settings = contextvars.ContextVar("selfbot_active_settings", default=None)
+_settings_by_session = {}
 
 
 def get_client():
@@ -56,27 +59,62 @@ def reset_active_client(token):
     _active_client.reset(token)
 
 
-tasks = {}
-self_enabled = True
-current_language = "fa"
-timed_save_enabled = False
-deleted_save_enabled = False
-meow_chats = set()
-enemy_targets = defaultdict(set)
-message_cache = defaultdict(lambda: deque(maxlen=1000))
-message_index = defaultdict(set)
-deleted_messages = defaultdict(list)
-enemy_counters = defaultdict(int)
+@dataclass
+class AccountSettings:
+    session_name: str
+    current_language: str = "fa"
+    self_enabled: bool = True
+    timed_save_enabled: bool = False
+    deleted_save_enabled: bool = False
+    meow_chats: set = field(default_factory=set)
+    enemy_targets: dict = field(default_factory=lambda: defaultdict(set))
+    enemy_counters: dict = field(default_factory=lambda: defaultdict(int))
+    tasks: dict = field(default_factory=dict)
+    message_cache: dict = field(
+        default_factory=lambda: defaultdict(lambda: deque(maxlen=1000))
+    )
+    message_index: dict = field(default_factory=lambda: defaultdict(set))
+    deleted_messages: dict = field(default_factory=lambda: defaultdict(list))
 
 
-def load_settings(path=None):
-    global current_language, deleted_save_enabled, self_enabled
-    global timed_save_enabled
+def get_settings():
+    active_settings = _active_settings.get()
+    if active_settings is not None:
+        return active_settings
+    return get_settings_for(Path(SESSION_NAME).stem)
 
-    settings_path = Path(path) if path is not None else SETTINGS_PATH
+
+def get_settings_for(session_name):
+    if session_name not in _settings_by_session:
+        settings = AccountSettings(session_name=session_name)
+        _settings_by_session[session_name] = settings
+        load_settings(settings)
+    return _settings_by_session[session_name]
+
+
+def set_active_settings(settings):
+    return _active_settings.set(settings)
+
+
+def reset_active_settings(token):
+    _active_settings.reset(token)
+
+
+def settings_path_for(session_name):
+    if session_name == Path(SESSION_NAME).stem:
+        return SETTINGS_PATH
+    return SETTINGS_PATH.with_name(
+        f"{SETTINGS_PATH.stem}_{session_name}{SETTINGS_PATH.suffix}"
+    )
+
+
+def load_settings(settings, path=None):
+    settings_path = Path(path) if path is not None else settings_path_for(
+        settings.session_name
+    )
     try:
         with settings_path.open(encoding="utf-8") as settings_file:
-            settings = json.load(settings_file)
+            saved_values = json.load(settings_file)
     except FileNotFoundError:
         return
     except (OSError, json.JSONDecodeError) as error:
@@ -90,22 +128,22 @@ def load_settings(path=None):
             f"Could not load saved settings from {settings_path}"
         ) from error
 
-    if not isinstance(settings, dict):
+    if not isinstance(saved_values, dict):
         raise RuntimeError(f"Invalid settings format in {settings_path}")
 
-    language = settings.get("current_language", "fa")
+    language = saved_values.get("current_language", "fa")
     boolean_settings = {
-        "self_enabled": settings.get("self_enabled", True),
-        "timed_save_enabled": settings.get("timed_save_enabled", False),
-        "deleted_save_enabled": settings.get("deleted_save_enabled", False),
+        "self_enabled": saved_values.get("self_enabled", True),
+        "timed_save_enabled": saved_values.get("timed_save_enabled", False),
+        "deleted_save_enabled": saved_values.get("deleted_save_enabled", False),
     }
     if not isinstance(language, str) or language not in {"fa", "ar"} or any(
         not isinstance(value, bool) for value in boolean_settings.values()
     ):
         raise RuntimeError(f"Invalid settings values in {settings_path}")
 
-    raw_meow_chats = settings.get("meow_chats", [])
-    raw_enemy_targets = settings.get("enemy_targets", {})
+    raw_meow_chats = saved_values.get("meow_chats", [])
+    raw_enemy_targets = saved_values.get("enemy_targets", {})
     if not isinstance(raw_meow_chats, list) or not isinstance(
         raw_enemy_targets, dict
     ):
@@ -131,27 +169,30 @@ def load_settings(path=None):
             raise RuntimeError(f"Invalid enemy targets in {settings_path}")
         restored_enemies[numeric_chat_id] = set(target_ids)
 
-    current_language = language
-    self_enabled = boolean_settings["self_enabled"]
-    timed_save_enabled = boolean_settings["timed_save_enabled"]
-    deleted_save_enabled = boolean_settings["deleted_save_enabled"]
-    meow_chats.clear()
-    meow_chats.update(raw_meow_chats)
-    enemy_targets.clear()
-    enemy_targets.update(restored_enemies)
+    settings.current_language = language
+    settings.self_enabled = boolean_settings["self_enabled"]
+    settings.timed_save_enabled = boolean_settings["timed_save_enabled"]
+    settings.deleted_save_enabled = boolean_settings["deleted_save_enabled"]
+    settings.meow_chats.clear()
+    settings.meow_chats.update(raw_meow_chats)
+    settings.enemy_targets.clear()
+    settings.enemy_targets.update(restored_enemies)
 
 
 def save_settings(path=None):
-    settings_path = Path(path) if path is not None else SETTINGS_PATH
+    settings = get_settings()
+    settings_path = Path(path) if path is not None else settings_path_for(
+        settings.session_name
+    )
     settings = {
-        "current_language": current_language,
-        "self_enabled": self_enabled,
-        "timed_save_enabled": timed_save_enabled,
-        "deleted_save_enabled": deleted_save_enabled,
-        "meow_chats": sorted(meow_chats),
+        "current_language": get_settings().current_language,
+        "self_enabled": get_settings().self_enabled,
+        "timed_save_enabled": get_settings().timed_save_enabled,
+        "deleted_save_enabled": get_settings().deleted_save_enabled,
+        "meow_chats": sorted(get_settings().meow_chats),
         "enemy_targets": {
             str(chat_id): sorted(target_ids)
-            for chat_id, target_ids in enemy_targets.items()
+            for chat_id, target_ids in get_settings().enemy_targets.items()
             if target_ids
         },
     }
@@ -177,7 +218,7 @@ def save_settings(path=None):
             temporary_path.unlink()
 
 
-load_settings()
+get_settings_for(Path(SESSION_NAME).stem)
 
 ENEMY_INSULTS = [
     "منیوچ الخرا",
@@ -317,7 +358,7 @@ def is_arabic_weather_command(text):
 
 
 def localized_text(text):
-    if current_language != "ar":
+    if get_settings().current_language != "ar":
         return text
 
     replacements = (
