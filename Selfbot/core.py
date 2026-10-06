@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -40,6 +41,21 @@ except ValueError as error:
 client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 logger = logging.getLogger(__name__)
 SETTINGS_PATH = Path(__file__).resolve().parent.parent / ".selfbot_settings.json"
+_active_client = contextvars.ContextVar("selfbot_active_client", default=None)
+
+
+def get_client():
+    return _active_client.get() or client
+
+
+def set_active_client(active_client):
+    return _active_client.set(active_client)
+
+
+def reset_active_client(token):
+    _active_client.reset(token)
+
+
 tasks = {}
 self_enabled = True
 current_language = "fa"

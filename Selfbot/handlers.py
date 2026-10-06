@@ -9,7 +9,6 @@ from telethon import events
 from . import core, services, ui, weather
 
 
-@core.client.on(events.NewMessage)
 async def cache_messages(event):
     if event.is_private and event.chat_id is not None and event.message is not None:
         sender = getattr(event.message, "sender", None)
@@ -28,7 +27,6 @@ async def cache_messages(event):
             asyncio.create_task(services.save_timed_message(event.message))
 
 
-@core.client.on(events.NewMessage)
 async def enemy_auto_reply_handler(event):
     """هنگام پیام دادن کاربر مشخص شده به عنوان دشمن، پاسخ خودکار ارسال می‌شود"""
     if not core.self_enabled or event.out or event.chat_id is None:
@@ -44,7 +42,7 @@ async def enemy_auto_reply_handler(event):
 
         try:
             await core.run_with_floodwait(
-                lambda: core.client.send_message(
+                lambda: core.get_client().send_message(
                     chat_id,
                     insult,
                     reply_to=event.id
@@ -54,7 +52,6 @@ async def enemy_auto_reply_handler(event):
             pass
 
 
-@core.client.on(events.MessageDeleted)
 async def deleted_message_handler(event):
     if not core.deleted_save_enabled:
         return
@@ -87,7 +84,6 @@ async def deleted_message_handler(event):
             await services.send_deleted_messages_report(chat_id)
 
 
-@core.client.on(events.NewMessage(outgoing=True))
 async def handler(event):
 
     text = event.raw_text.strip()
@@ -432,7 +428,7 @@ async def handler(event):
                 prefix="meow_story_"
             ) as folder:
 
-                file_path = await core.client.download_media(
+                file_path = await core.get_client().download_media(
                     reply,
                     file=folder
                 )
@@ -444,7 +440,7 @@ async def handler(event):
                     )
                     return
 
-                await core.client.send_file(
+                await core.get_client().send_file(
                     chat_id,
                     file_path,
                     caption=core.localized_text("استوری دانلود شد ✅")
@@ -457,3 +453,21 @@ async def handler(event):
                 event,
                 f"دانلود استوری انجام نشد: {type(error).__name__}"
             )
+
+
+def register_handlers(client):
+    registrations = (
+        (cache_messages, events.NewMessage()),
+        (enemy_auto_reply_handler, events.NewMessage()),
+        (deleted_message_handler, events.MessageDeleted()),
+        (handler, events.NewMessage(outgoing=True)),
+    )
+    for callback, event_builder in registrations:
+        async def dispatch(event, callback=callback, active_client=client):
+            token = core.set_active_client(active_client)
+            try:
+                await callback(event)
+            finally:
+                core.reset_active_client(token)
+
+        client.add_event_handler(dispatch, event_builder)

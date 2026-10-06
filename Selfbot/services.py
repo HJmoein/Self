@@ -50,14 +50,14 @@ async def save_timed_message(message):
     try:
         with tempfile.TemporaryDirectory(prefix="timed_message_") as folder:
             file_path = await core.run_with_floodwait(
-                lambda: core.client.download_media(message, file=folder)
+                lambda: core.get_client().download_media(message, file=folder)
             )
 
             if not file_path:
                 return
 
             await core.run_with_floodwait(
-                lambda: core.client.send_file(
+                lambda: core.get_client().send_file(
                     "me",
                     file_path,
                     caption=core.localized_text("پیام زمان‌دار ذخیره شد ✅"),
@@ -85,7 +85,7 @@ async def save_deleted_message(item):
     try:
         if original_message.media:
             await core.run_with_floodwait(
-                lambda: core.client.send_file(
+                lambda: core.get_client().send_file(
                     "me",
                     original_message.media,
                     caption=caption + "\n\n" + (item["text"] or ""),
@@ -93,14 +93,14 @@ async def save_deleted_message(item):
             )
         else:
             await core.run_with_floodwait(
-                lambda: core.client.send_message(
+                lambda: core.get_client().send_message(
                     "me",
                     caption + "\n\n" + (item["text"] or core.localized_text("[بدون متن]")),
                 )
             )
     except Exception:
         await core.run_with_floodwait(
-            lambda: core.client.send_message(
+            lambda: core.get_client().send_message(
                 "me",
                 caption + "\n\n" + (item["text"] or core.localized_text("[مدیا قابل بازیابی نبود]")),
             )
@@ -153,7 +153,7 @@ async def send_deleted_messages_report(chat_id):
 
     try:
         await core.run_with_floodwait(
-            lambda: core.client.send_file(
+            lambda: core.get_client().send_file(
                 "me",
                 report_path,
                 caption=core.localized_text(f"گزارش {len(messages)} پیام حذف‌شده ✅"),
@@ -172,7 +172,7 @@ async def meow_loop(chat_id):
         while True:
             await asyncio.sleep(300)
             meow_text = "ميو" if core.current_language == "ar" else "میو"
-            await core.client.send_message(chat_id, meow_text)
+            await core.get_client().send_message(chat_id, meow_text)
     except asyncio.CancelledError:
         pass
 
@@ -225,10 +225,10 @@ async def download_story_link(chat_id, link, status_message=None):
     story_id = int(match.group("story_id"))
 
     try:
-        peer = await core.client.get_input_entity(username)
+        peer = await core.get_client().get_input_entity(username)
 
         result = await core.run_with_floodwait(
-            lambda: core.client(
+            lambda: core.get_client()(
                 GetStoriesByIDRequest(
                     peer=peer,
                     id=[story_id]
@@ -279,7 +279,7 @@ async def download_story_link(chat_id, link, status_message=None):
         ) as folder:
 
             file_path = await core.run_with_floodwait(
-                lambda: core.client.download_media(
+                lambda: core.get_client().download_media(
                     story.media,
                     file=folder,
                     progress_callback=show_progress,
@@ -290,7 +290,7 @@ async def download_story_link(chat_id, link, status_message=None):
                 return "دانلود استوری انجام نشد."
 
             await core.run_with_floodwait(
-                lambda: core.client.send_file(
+                lambda: core.get_client().send_file(
                     chat_id,
                     file_path,
                     caption=core.localized_text("استوری دانلود شد ✅"),
@@ -364,7 +364,7 @@ async def resolve_message_chat(message):
         return None
 
     try:
-        return await core.run_with_floodwait(lambda: core.client.get_entity(peer_id))
+        return await core.run_with_floodwait(lambda: core.get_client().get_entity(peer_id))
     except Exception as error:
         core.logger.warning(
             "Could not fetch chat entity for message id=%s: %s",
@@ -397,7 +397,7 @@ async def resolve_message_sender(message):
     if sender_id is not None:
         try:
             resolved_sender = await core.run_with_floodwait(
-                lambda: core.client.get_entity(sender_id)
+                lambda: core.get_client().get_entity(sender_id)
             )
             if resolved_sender is not None:
                 return resolved_sender
@@ -525,7 +525,7 @@ async def download_channel_message(chat_id, message=None, link=None, status_mess
                 entity = username
 
             message = await core.run_with_floodwait(
-                lambda: core.client.get_messages(entity, ids=message_id)
+                lambda: core.get_client().get_messages(entity, ids=message_id)
             )
         except Exception:
             return "این پیام پیدا نشد یا دسترسی به آن وجود ندارد."
@@ -569,7 +569,7 @@ async def download_channel_message(chat_id, message=None, link=None, status_mess
 
             with tempfile.TemporaryDirectory(prefix="channel_receive_") as folder:
                 file_path = await core.run_with_floodwait(
-                    lambda: core.client.download_media(
+                    lambda: core.get_client().download_media(
                         message,
                         file=folder,
                         progress_callback=show_progress,
@@ -580,7 +580,7 @@ async def download_channel_message(chat_id, message=None, link=None, status_mess
                     return "دریافت مدیا انجام نشد."
 
                 await core.run_with_floodwait(
-                    lambda: core.client.send_file(
+                    lambda: core.get_client().send_file(
                         chat_id,
                         file_path,
                         caption=media_caption,
@@ -591,7 +591,7 @@ async def download_channel_message(chat_id, message=None, link=None, status_mess
         elif caption_text.strip():
             text_with_info = f"{caption_text}\n\n━━━━━━━━━━━━\n{info_text}"
             await core.run_with_floodwait(
-                lambda: core.client.send_message(chat_id, text_with_info)
+                lambda: core.get_client().send_message(chat_id, text_with_info)
             )
 
         else:

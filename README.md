@@ -30,7 +30,8 @@ the list screen, to go back. The manager menu's `Back` option returns to the
 terminal; it does not start the bot. Adding an account requires its phone
 number, Telegram login code, and two-step verification password when enabled.
 Account sessions and account metadata are stored locally and excluded from Git;
-session filenames are not shown in account listings.
+session filenames are not shown in account listings. The bot starts every saved
+account session when it launches, so restart the bot after adding an account.
 
 Selfbot settings (selected language and enabled features) are saved locally
 when changed and restored on the next start. Per-chat meow and enemy settings

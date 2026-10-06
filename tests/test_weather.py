@@ -480,6 +480,8 @@ class ApplicationStartupTests(unittest.IsolatedAsyncioTestCase):
                 ),
             ),
             patch.object(account_manager, "save_account_profile") as save_profile,
+            patch.object(account_manager, "_read_account_profiles", return_value={}),
+            patch.object(handlers, "register_handlers") as register_handlers,
             patch.object(account_manager, "main", new=AsyncMock()) as manager,
             patch.object(
                 account_manager,
@@ -494,9 +496,101 @@ class ApplicationStartupTests(unittest.IsolatedAsyncioTestCase):
         run.assert_awaited_once()
         manager.assert_not_awaited()
         save_profile.assert_called_once()
+        register_handlers.assert_called_once_with(core.client)
         terminal_print.assert_any_call("SelfBot is running...")
         self.assertEqual(startup_order, ["start", "run"])
         listing.assert_not_awaited()
+
+    async def test_normal_startup_starts_and_registers_added_accounts(self):
+        class AddedClient:
+            def __init__(self, session_name, api_id, api_hash):
+                self.session_name = Path(session_name).name
+                self.connected = False
+
+            async def connect(self):
+                self.connected = True
+
+            async def is_user_authorized(self):
+                return True
+
+            async def get_me(self):
+                return type(
+                    "User",
+                    (),
+                    {"id": 67890, "first_name": "Added", "last_name": "Account"},
+                )()
+
+            async def run_until_disconnected(self):
+                return None
+
+            def is_connected(self):
+                return self.connected
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            session_dir = Path(temporary_directory)
+            (session_dir / "account_1.session").touch()
+            with (
+                patch.object(app.sys, "argv", ["Bot.py"]),
+                patch.object(core.client, "start", new=AsyncMock()) as start,
+                patch.object(
+                    core.client,
+                    "run_until_disconnected",
+                    new=AsyncMock(),
+                ) as run,
+                patch.object(
+                    core.client,
+                    "get_me",
+                    new=AsyncMock(
+                        return_value=type(
+                            "User",
+                            (),
+                            {"id": 12345, "first_name": "Main", "last_name": "Account"},
+                        )(),
+                    ),
+                ),
+                patch.object(
+                    account_manager,
+                    "_read_account_profiles",
+                    return_value={"self": {}, "account_1": {}},
+                ),
+                patch.object(account_manager, "SESSION_DIRECTORY", session_dir),
+                patch.object(app, "TelegramClient", AddedClient),
+                patch.object(handlers, "register_handlers") as register_handlers,
+                patch.object(account_manager, "save_account_profile") as save_profile,
+                patch.object(core, "meow_chats", set()),
+            ):
+                await app.main()
+
+        start.assert_awaited_once()
+        run.assert_awaited_once()
+        registered_clients = [
+            call.args[0] for call in register_handlers.call_args_list
+        ]
+        self.assertIs(registered_clients[0], core.client)
+        self.assertEqual(registered_clients[1].session_name, "account_1")
+        self.assertEqual(save_profile.call_count, 2)
+
+    async def test_registered_handler_uses_owning_telegram_client(self):
+        client = type(
+            "Client",
+            (),
+            {
+                "add_event_handler": lambda self, callback, builder: self.handlers.append(
+                    callback
+                ),
+                "handlers": [],
+            },
+        )()
+        selected_clients = []
+
+        async def verify_client(event):
+            selected_clients.append(core.get_client())
+
+        with patch.object(handlers, "cache_messages", verify_client):
+            handlers.register_handlers(client)
+            await client.handlers[0](object())
+
+        self.assertEqual(selected_clients, [client])
 
     async def test_accounts_argument_opens_manager(self):
         with (

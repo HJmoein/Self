@@ -201,7 +201,7 @@ async def show_user_id(event):
 
 
 async def show_my_id(event):
-    user = await core.client.get_me()
+    user = await core.get_client().get_me()
 
     first_name = getattr(user, "first_name", None) or "بدون نام"
     last_name = getattr(user, "last_name", None) or ""
