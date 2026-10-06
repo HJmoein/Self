@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlparse
 
-from Selfbot import account_manager, app, core, handlers, ui, weather
+from Selfbot import app, core, handlers, ui, weather
 
 
 def _fake_logout_client(user_id):
@@ -238,368 +238,9 @@ class MainHelpUiTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("پنل دستورات سلف", help_text)
 
 
-class AccountManagerTests(unittest.IsolatedAsyncioTestCase):
-    async def test_account_menu_uses_english_labels(self):
-        output = io.StringIO()
-        with patch("builtins.input", return_value="4"), redirect_stdout(output):
-            await account_manager.main()
-
-        self.assertIn("Add Account", output.getvalue())
-        self.assertIn("List Accounts", output.getvalue())
-        self.assertIn("Delete Account", output.getvalue())
-        self.assertIn("Back", output.getvalue())
-        self.assertNotIn("Run Account", output.getvalue())
-
-    async def test_account_list_shows_cached_phone_ids_and_names_without_opening_sessions(self):
-        paths = [Path("self.session"), Path("account_1.session")]
-        cached_profiles = {
-            "self": {
-                "phone": "+123456789",
-                "id": 12345,
-                "name": "Test Account",
-            }
-        }
-        output = io.StringIO()
-        with (
-            patch.object(account_manager, "_session_paths", return_value=paths),
-            patch.object(
-                account_manager,
-                "_read_account_profiles",
-                return_value=cached_profiles,
-            ),
-            patch.object(account_manager, "TelegramClient") as telegram_client,
-            patch("builtins.input", return_value="") as prompt,
-            redirect_stdout(output),
-        ):
-            accounts = await account_manager.list_accounts()
-
-        self.assertEqual(len(accounts), 1)
-        self.assertIn("Accounts: 1", output.getvalue())
-        self.assertIn("Phone: +123456789", output.getvalue())
-        self.assertIn("ID: 12345", output.getvalue())
-        self.assertIn("Name: Test Account", output.getvalue())
-        telegram_client.assert_not_called()
-        self.assertNotIn("Session:", output.getvalue())
-        self.assertNotIn("self.session", output.getvalue())
-        self.assertNotIn("account_1.session", output.getvalue())
-        prompt.assert_called_once_with("\nPress Enter or type B to go back: ")
-
-    async def test_add_account_prompts_and_reports_english_success(self):
-        user = type(
-            "User",
-            (),
-            {"id": 67890, "first_name": "New", "last_name": "User"},
-        )()
-
-        class FakeClient:
-            def __init__(self, *args):
-                self.connected = False
-                self.start_arguments = None
-
-            async def start(self, **kwargs):
-                self.connected = True
-                self.start_arguments = kwargs
-
-            async def get_me(self):
-                return user
-
-            def is_connected(self):
-                return self.connected
-
-            async def disconnect(self):
-                self.connected = False
-
-        output = io.StringIO()
-        with (
-            patch("builtins.input", return_value="+123456789"),
-            patch.object(account_manager, "_next_session_path", return_value=Path("account_2")),
-            patch.object(account_manager, "TelegramClient", FakeClient),
-            patch.object(
-                account_manager,
-                "_session_name_for_user",
-                return_value="New_User",
-            ),
-            patch.object(account_manager, "rename_session"),
-            tempfile.TemporaryDirectory() as temporary_directory,
-            patch.object(
-                account_manager,
-                "ACCOUNT_METADATA_PATH",
-                Path(temporary_directory) / ".account_profiles.json",
-            ),
-            redirect_stdout(output),
-        ):
-            await account_manager.add_account()
-            saved_profiles = json.loads(
-                (Path(temporary_directory) / ".account_profiles.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-
-        self.assertIn("Account added successfully.", output.getvalue())
-        self.assertIn("Phone: +123456789", output.getvalue())
-        self.assertIn("ID: 67890", output.getvalue())
-        self.assertIn("Name: New User", output.getvalue())
-        self.assertNotIn("Session:", output.getvalue())
-        self.assertEqual(
-            saved_profiles["New_User"],
-            {"id": 67890, "name": "New User", "phone": "+123456789"},
-        )
-
-    def test_legacy_account_sessions_are_renamed_to_the_saved_account_name(self):
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            directory = Path(temporary_directory)
-            source = directory / "account_1.session"
-            source.touch()
-            metadata_path = directory / ".account_profiles.json"
-            with (
-                patch.object(account_manager, "SESSION_DIRECTORY", directory),
-                patch.object(account_manager, "ACCOUNT_METADATA_PATH", metadata_path),
-            ):
-                profiles = account_manager.migrate_named_sessions(
-                    {
-                        "self": {"id": 1, "name": "Main"},
-                        "account_1": {"id": 2, "name": "Nima User"},
-                    }
-                )
-
-            self.assertFalse(source.exists())
-            self.assertTrue((directory / "Nima_User.session").exists())
-            self.assertIn("Nima_User", profiles)
-            self.assertNotIn("account_1", profiles)
-            saved_profiles = json.loads(metadata_path.read_text(encoding="utf-8"))
-            self.assertIn("Nima_User", saved_profiles)
-
-    async def test_delete_account_removes_session_settings_and_saved_profile(self):
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            directory = Path(temporary_directory)
-            session_path = directory / "Nima_User.session"
-            settings_path = directory / ".selfbot_settings_Nima_User.json"
-            metadata_path = directory / ".account_profiles.json"
-            session_path.touch()
-            Path(f"{session_path}-journal").touch()
-            settings_path.touch()
-            metadata_path.write_text(
-                json.dumps(
-                    {
-                        "self": {"id": 1, "name": "Main Account"},
-                        "Nima_User": {
-                            "id": 2,
-                            "name": "Nima User",
-                            "phone": "+989120000000",
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-            with (
-                patch.object(account_manager, "SESSION_DIRECTORY", directory),
-                patch.object(account_manager, "ACCOUNT_METADATA_PATH", metadata_path),
-                patch.object(core, "settings_path_for", return_value=settings_path),
-                patch.object(core, "SESSION_NAME", "self"),
-                patch.object(
-                    account_manager,
-                    "TelegramClient",
-                    return_value=_fake_logout_client(2),
-                ) as telegram_client,
-                patch("builtins.input", side_effect=["2", "yes"]),
-                redirect_stdout(io.StringIO()),
-            ):
-                await account_manager.delete_account()
-
-            telegram_client.return_value.log_out.assert_awaited_once()
-            self.assertFalse(session_path.exists())
-            self.assertFalse(Path(f"{session_path}-journal").exists())
-            self.assertFalse(settings_path.exists())
-            saved_profiles = json.loads(metadata_path.read_text(encoding="utf-8"))
-            self.assertEqual(
-                saved_profiles,
-                {"self": {"id": 1, "name": "Main Account"}},
-            )
-
-    async def test_delete_account_requires_explicit_confirmation(self):
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            directory = Path(temporary_directory)
-            session_path = directory / "Nima_User.session"
-            metadata_path = directory / ".account_profiles.json"
-            session_path.touch()
-            metadata_path.write_text(
-                json.dumps(
-                    {"Nima_User": {"id": 2, "name": "Nima User", "phone": "+123"}}
-                ),
-                encoding="utf-8",
-            )
-            with (
-                patch.object(account_manager, "SESSION_DIRECTORY", directory),
-                patch.object(account_manager, "ACCOUNT_METADATA_PATH", metadata_path),
-                patch.object(core, "SESSION_NAME", "self"),
-                patch.object(
-                    account_manager,
-                    "TelegramClient",
-                    return_value=_fake_logout_client(2),
-                ) as telegram_client,
-                patch("builtins.input", side_effect=["2", "no"]),
-                redirect_stdout(io.StringIO()),
-            ):
-                await account_manager.delete_account()
-
-            telegram_client.assert_not_called()
-            self.assertTrue(session_path.exists())
-            self.assertIn(
-                "Nima_User",
-                json.loads(metadata_path.read_text(encoding="utf-8")),
-            )
-
-    async def test_delete_menu_lists_session_files_even_without_cached_profiles(self):
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            directory = Path(temporary_directory)
-            (directory / "Alpha.session").touch()
-            (directory / "Beta.session").touch()
-            metadata_path = directory / ".account_profiles.json"
-            metadata_path.write_text("{}", encoding="utf-8")
-            output = io.StringIO()
-            with (
-                patch.object(account_manager, "SESSION_DIRECTORY", directory),
-                patch.object(account_manager, "ACCOUNT_METADATA_PATH", metadata_path),
-                patch.object(core, "settings_path_for", return_value=directory / "settings.json"),
-                patch.object(core, "SESSION_NAME", "self"),
-                patch.object(
-                    account_manager,
-                    "_resolve_account_id",
-                    new=AsyncMock(side_effect=lambda account: account),
-                ),
-                patch("builtins.input", side_effect=["222", "yes"]),
-                redirect_stdout(output),
-            ):
-                await account_manager.delete_account()
-
-            listing = output.getvalue()
-            self.assertIn("Accounts available for deletion: 2", listing)
-            self.assertIn("1. ID: Not available | Phone: Not available | Name: Alpha", listing)
-            self.assertIn("2. ID: Not available | Phone: Not available | Name: Beta", listing)
-            self.assertTrue((directory / "Alpha.session").exists())
-            self.assertTrue((directory / "Beta.session").exists())
-            self.assertIn("No additional account found with Telegram ID 222.", listing)
-
-    async def test_delete_account_uses_telegram_id_not_list_position(self):
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            directory = Path(temporary_directory)
-            first_session = directory / "Alpha.session"
-            second_session = directory / "Beta.session"
-            metadata_path = directory / ".account_profiles.json"
-            first_session.touch()
-            second_session.touch()
-            metadata_path.write_text(
-                json.dumps(
-                    {
-                        "Alpha": {"id": 111, "name": "Alpha"},
-                        "Beta": {"id": 987654, "name": "Beta"},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            with (
-                patch.object(account_manager, "SESSION_DIRECTORY", directory),
-                patch.object(account_manager, "ACCOUNT_METADATA_PATH", metadata_path),
-                patch.object(core, "settings_path_for", return_value=directory / "settings.json"),
-                patch.object(core, "SESSION_NAME", "self"),
-                patch.object(
-                    account_manager,
-                    "TelegramClient",
-                    return_value=_fake_logout_client(987654),
-                ),
-                patch("builtins.input", side_effect=["987654", "YES"]),
-                redirect_stdout(io.StringIO()),
-            ):
-                await account_manager.delete_account()
-
-            self.assertTrue(first_session.exists())
-            self.assertFalse(second_session.exists())
-            profiles = json.loads(metadata_path.read_text(encoding="utf-8"))
-            self.assertEqual(set(profiles), {"Alpha"})
-
-    async def test_primary_account_session_is_available_for_removal_by_id(self):
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            directory = Path(temporary_directory)
-            session_path = directory / "self.session"
-            metadata_path = directory / ".account_profiles.json"
-            session_path.touch()
-            metadata_path.write_text(
-                json.dumps({"self": {"id": 12345, "name": "Primary"}}),
-                encoding="utf-8",
-            )
-            with (
-                patch.object(account_manager, "SESSION_DIRECTORY", directory),
-                patch.object(account_manager, "ACCOUNT_METADATA_PATH", metadata_path),
-                patch.object(core, "settings_path_for", return_value=directory / "settings.json"),
-                patch.object(core, "SESSION_NAME", "self"),
-                patch.object(
-                    account_manager,
-                    "TelegramClient",
-                    return_value=_fake_logout_client(12345),
-                ),
-                patch("builtins.input", side_effect=["12345", "yes"]),
-                redirect_stdout(io.StringIO()),
-            ):
-                await account_manager.delete_account()
-
-            self.assertFalse(session_path.exists())
-
-    async def test_back_cancels_account_add_flow(self):
-        output = io.StringIO()
-        with (
-            patch("builtins.input", return_value="B"),
-            patch.object(account_manager, "TelegramClient") as telegram_client,
-            redirect_stdout(output),
-        ):
-            await account_manager.add_account()
-
-        telegram_client.assert_not_called()
-
-    async def test_back_during_login_code_returns_to_account_menu(self):
-        class FakeClient:
-            def __init__(self, *args):
-                self.connected = False
-
-            async def start(self, **kwargs):
-                self.connected = True
-                kwargs["code_callback"]()
-
-            def is_connected(self):
-                return self.connected
-
-            async def disconnect(self):
-                self.connected = False
-
-        output = io.StringIO()
-        with (
-            patch("builtins.input", side_effect=["+123456789", "B"]),
-            patch.object(
-                account_manager,
-                "_next_session_path",
-                return_value=Path("account_2"),
-            ),
-            patch.object(account_manager, "TelegramClient", FakeClient),
-            redirect_stdout(output),
-        ):
-            await account_manager.add_account()
-
-        self.assertIn("Account setup cancelled.", output.getvalue())
-
-    async def test_account_manager_lists_then_back_returns_to_menu(self):
-        output = io.StringIO()
-        with (
-            patch("builtins.input", side_effect=["2", "", "4"]),
-            patch.object(account_manager, "list_accounts", new=AsyncMock()) as listing,
-            redirect_stdout(output),
-        ):
-            await account_manager.main()
-
-        listing.assert_awaited_once()
-        self.assertGreaterEqual(output.getvalue().count("=== SELFBOT ACCOUNT MANAGER ==="), 2)
-
-
 class SettingsPersistenceTests(unittest.IsolatedAsyncioTestCase):
-    def test_settings_round_trip_restores_global_and_per_chat_options(self):
+    def test_settings_round_trip_restores_language_and_feature_flags(self):
+        session_name = Path(core.SESSION_NAME).stem
         settings = core.get_settings()
         original_values = (
             settings.current_language,
@@ -609,316 +250,91 @@ class SettingsPersistenceTests(unittest.IsolatedAsyncioTestCase):
             set(settings.meow_chats),
             {chat_id: set(targets) for chat_id, targets in settings.enemy_targets.items()},
         )
-        try:
-            settings.current_language = "ar"
-            settings.self_enabled = False
-            settings.timed_save_enabled = True
-            settings.deleted_save_enabled = True
-            settings.meow_chats.clear()
-            settings.meow_chats.add(-100123)
-            settings.enemy_targets.clear()
-            settings.enemy_targets[-100456].add(98765)
 
-            with tempfile.TemporaryDirectory() as temporary_directory:
-                settings_path = Path(temporary_directory) / "settings.json"
-                core.save_settings(settings_path)
-
-                settings.current_language = "fa"
-                settings.self_enabled = True
-                settings.timed_save_enabled = False
-                settings.deleted_save_enabled = False
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            settings_path = Path(temporary_directory) / ".selfbot_settings.json"
+            with patch.object(core, "SETTINGS_PATH", settings_path):
+                settings.current_language = "ar"
+                settings.self_enabled = False
+                settings.timed_save_enabled = True
+                settings.deleted_save_enabled = True
                 settings.meow_chats.clear()
+                settings.meow_chats.add(-100123)
                 settings.enemy_targets.clear()
-                core.load_settings(settings, settings_path)
+                settings.enemy_targets[-100456].add(98765)
+                core.save_settings()
+                restored = core.AccountSettings(session_name)
+                core.load_settings(restored)
 
-            self.assertEqual(settings.current_language, "ar")
-            self.assertFalse(settings.self_enabled)
-            self.assertTrue(settings.timed_save_enabled)
-            self.assertTrue(settings.deleted_save_enabled)
-            self.assertEqual(settings.meow_chats, {-100123})
-            self.assertEqual(settings.enemy_targets[-100456], {98765})
+        try:
+            self.assertEqual(restored.current_language, "ar")
+            self.assertFalse(restored.self_enabled)
+            self.assertTrue(restored.timed_save_enabled)
+            self.assertTrue(restored.deleted_save_enabled)
+            self.assertEqual(restored.meow_chats, {-100123})
+            self.assertEqual(restored.enemy_targets[-100456], {98765})
         finally:
             (
                 settings.current_language,
                 settings.self_enabled,
                 settings.timed_save_enabled,
                 settings.deleted_save_enabled,
-                saved_meow_chats,
-                saved_enemy_targets,
+                old_meow_chats,
+                old_enemy_targets,
             ) = original_values
             settings.meow_chats.clear()
-            settings.meow_chats.update(saved_meow_chats)
+            settings.meow_chats.update(old_meow_chats)
             settings.enemy_targets.clear()
-            settings.enemy_targets.update(saved_enemy_targets)
+            settings.enemy_targets.update(old_enemy_targets)
 
-    def test_different_accounts_have_independent_persisted_settings(self):
-        first = core.AccountSettings("test_first")
-        second = core.AccountSettings("test_second")
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            first_path = Path(temporary_directory) / "first.json"
-            second_path = Path(temporary_directory) / "second.json"
-            first.current_language = "ar"
-            second.current_language = "fa"
-            first_token = core.set_active_settings(first)
-            try:
-                core.save_settings(first_path)
-            finally:
-                core.reset_active_settings(first_token)
-            second_token = core.set_active_settings(second)
-            try:
-                core.save_settings(second_path)
-            finally:
-                core.reset_active_settings(second_token)
-
-            first.current_language = "fa"
-            second.current_language = "ar"
-            core.load_settings(first, first_path)
-            core.load_settings(second, second_path)
-
-        self.assertEqual(first.current_language, "ar")
-        self.assertEqual(second.current_language, "fa")
-
-    async def test_language_command_saves_changed_setting(self):
-        event = FakeEvent(".زبان عربی")
-        previous_language = core.get_settings().current_language
+    async def test_language_change_is_persisted(self):
+        settings = core.get_settings()
+        old_language = settings.current_language
         try:
-            with patch.object(core, "save_settings") as save_settings:
-                await handlers.handler(event)
+            with tempfile.TemporaryDirectory() as temporary_directory:
+                settings_path = Path(temporary_directory) / ".selfbot_settings.json"
+                with patch.object(core, "SETTINGS_PATH", settings_path):
+                    settings.current_language = "fa"
+                    wrong_language_event = FakeEvent(".اللغة العربية")
+                    await handlers.handler(wrong_language_event)
+                    self.assertEqual(settings.current_language, "fa")
+                    self.assertEqual(wrong_language_event.edits, [])
 
-            self.assertEqual(core.get_settings().current_language, "ar")
-            save_settings.assert_called_once_with()
-            self.assertIn("تم تفعيل اللغة العربية", event.edits[-1])
+                    await handlers.handler(FakeEvent(".زبان عربی"))
+                    self.assertEqual(settings.current_language, "ar")
+
+                    wrong_language_event = FakeEvent(".زبان فارسی")
+                    await handlers.handler(wrong_language_event)
+                    self.assertEqual(settings.current_language, "ar")
+                    self.assertEqual(wrong_language_event.edits, [])
+
+                    await handlers.handler(FakeEvent(".اللغة الفارسية"))
+                    restored = core.AccountSettings(Path(core.SESSION_NAME).stem)
+                    core.load_settings(restored)
+            self.assertEqual(restored.current_language, "fa")
         finally:
-            core.get_settings().current_language = previous_language
+            settings.current_language = old_language
 
 
 class ApplicationStartupTests(unittest.IsolatedAsyncioTestCase):
-    async def test_normal_startup_runs_selfbot_without_account_listing(self):
-        startup_order = []
+    async def test_startup_runs_only_the_primary_selfbot_session(self):
+        settings = core.get_settings()
         with (
-            patch.object(app.sys, "argv", ["Bot.py"]),
-            patch.object(
-                core.client,
-                "start",
-                new=AsyncMock(side_effect=lambda: startup_order.append("start")),
-            ) as start,
+            patch.object(core.client, "start", new=AsyncMock()) as start,
             patch.object(
                 core.client,
                 "run_until_disconnected",
-                new=AsyncMock(
-                    side_effect=lambda: startup_order.append("run")
-                ),
+                new=AsyncMock(),
             ) as run,
-            patch.object(
-                core.client,
-                "get_me",
-                new=AsyncMock(
-                    return_value=type(
-                        "User",
-                        (),
-                        {
-                            "id": 12345,
-                            "first_name": "Test",
-                            "last_name": "Account",
-                            "phone": "+123456789",
-                        },
-                    )(),
-                ),
-            ),
-            patch.object(account_manager, "save_account_profile") as save_profile,
             patch.object(core, "save_settings") as save_settings,
-            patch.object(account_manager, "_read_account_profiles", return_value={}),
             patch.object(handlers, "register_handlers") as register_handlers,
-            patch.object(account_manager, "main", new=AsyncMock()) as manager,
-            patch.object(
-                account_manager,
-                "list_accounts",
-                new=AsyncMock(),
-            ) as listing,
-            patch("builtins.print") as terminal_print,
         ):
             await app.main()
 
-        start.assert_awaited_once()
-        run.assert_awaited_once()
-        manager.assert_not_awaited()
-        save_profile.assert_called_once()
+        start.assert_awaited_once_with()
+        run.assert_awaited_once_with()
         save_settings.assert_called_once_with()
-        self.assertIs(register_handlers.call_args.args[0], core.client)
-        terminal_print.assert_any_call("SelfBot is running...")
-        self.assertEqual(startup_order, ["start", "run"])
-        listing.assert_not_awaited()
-
-    async def test_normal_startup_starts_and_registers_added_accounts(self):
-        class AddedClient:
-            def __init__(self, session_name, api_id, api_hash):
-                self.session_name = Path(session_name).name
-                self.connected = False
-
-            async def connect(self):
-                self.connected = True
-
-            async def is_user_authorized(self):
-                return True
-
-            async def get_me(self):
-                return type(
-                    "User",
-                    (),
-                    {"id": 67890, "first_name": "Added", "last_name": "Account"},
-                )()
-
-            async def run_until_disconnected(self):
-                return None
-
-            def is_connected(self):
-                return self.connected
-
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            session_dir = Path(temporary_directory)
-            (session_dir / "account_1.session").touch()
-            with (
-                patch.object(app.sys, "argv", ["Bot.py"]),
-                patch.object(core.client, "start", new=AsyncMock()) as start,
-                patch.object(
-                    core.client,
-                    "run_until_disconnected",
-                    new=AsyncMock(),
-                ) as run,
-                patch.object(
-                    core.client,
-                    "get_me",
-                    new=AsyncMock(
-                        return_value=type(
-                            "User",
-                            (),
-                            {"id": 12345, "first_name": "Main", "last_name": "Account"},
-                        )(),
-                    ),
-                ),
-                patch.object(
-                    account_manager,
-                    "_read_account_profiles",
-                    return_value={
-                        "self": {},
-                        "account_1": {
-                            "id": 67890,
-                            "name": "Added Account",
-                            "phone": "+123",
-                        },
-                    },
-                ),
-                patch.object(account_manager, "SESSION_DIRECTORY", session_dir),
-                patch.object(
-                    account_manager,
-                    "ACCOUNT_METADATA_PATH",
-                    session_dir / ".account_profiles.json",
-                ),
-                patch.object(app, "TelegramClient", AddedClient),
-                patch.object(handlers, "register_handlers") as register_handlers,
-                patch.object(account_manager, "save_account_profile") as save_profile,
-                patch.object(core, "save_settings") as save_settings,
-                patch.object(
-                    core,
-                    "get_settings_for",
-                    side_effect=lambda name: core.AccountSettings(name),
-                ),
-            ):
-                await app.main()
-
-        start.assert_awaited_once()
-        run.assert_awaited_once()
-        registered_clients = [
-            call.args[0] for call in register_handlers.call_args_list
-        ]
-        self.assertIs(registered_clients[0], core.client)
-        self.assertEqual(registered_clients[1].session_name, "Added_Account")
-        self.assertEqual(save_profile.call_count, 2)
-        self.assertEqual(save_settings.call_count, 2)
-
-    async def test_registered_handler_uses_owning_telegram_client(self):
-        client = type(
-            "Client",
-            (),
-            {
-                "add_event_handler": lambda self, callback, builder: self.handlers.append(
-                    callback
-                ),
-                "handlers": [],
-            },
-        )()
-        selected_clients = []
-
-        async def verify_client(event):
-            selected_clients.append(core.get_client())
-
-        with patch.object(handlers, "cache_messages", verify_client):
-            handlers.register_handlers(client)
-            await client.handlers[0](object())
-
-        self.assertEqual(selected_clients, [client])
-
-    async def test_registered_handlers_use_each_accounts_own_settings(self):
-        def fake_client():
-            return type(
-                "Client",
-                (),
-                {
-                    "add_event_handler": lambda self, callback, builder: self.handlers.append(
-                        callback
-                    ),
-                    "handlers": [],
-                },
-            )()
-
-        first_client = fake_client()
-        second_client = fake_client()
-        first_settings = core.AccountSettings("first")
-        second_settings = core.AccountSettings("second")
-        first_settings.current_language = "ar"
-        selected_languages = []
-
-        async def verify_settings(event):
-            selected_languages.append(core.get_settings().current_language)
-
-        with patch.object(handlers, "cache_messages", verify_settings):
-            handlers.register_handlers(first_client, first_settings)
-            handlers.register_handlers(second_client, second_settings)
-            await first_client.handlers[0](object())
-            await second_client.handlers[0](object())
-
-        self.assertEqual(selected_languages, ["ar", "fa"])
-        self.assertNotEqual(
-            core.settings_path_for(first_settings.session_name),
-            core.settings_path_for(second_settings.session_name),
-        )
-        self.assertEqual(second_settings.current_language, "fa")
-
-    async def test_accounts_argument_opens_manager(self):
-        with (
-            patch.object(app.sys, "argv", ["Bot.py", "--accounts"]),
-            patch.object(account_manager, "main", new=AsyncMock()) as manager,
-            patch.object(core.client, "start", new=AsyncMock()) as start,
-        ):
-            await app.main()
-
-        manager.assert_awaited_once()
-        start.assert_not_awaited()
-
-    async def test_list_accounts_argument_shows_list_without_starting_bot(self):
-        with (
-            patch.object(app.sys, "argv", ["Bot.py", "--list-accounts"]),
-            patch.object(
-                account_manager,
-                "list_accounts",
-                new=AsyncMock(),
-            ) as listing,
-            patch.object(core.client, "start", new=AsyncMock()) as start,
-        ):
-            await app.main()
-
-        listing.assert_awaited_once_with(wait_for_back=False)
-        start.assert_not_awaited()
+        register_handlers.assert_called_once_with(core.client)
 
 
 class WeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
@@ -977,6 +393,59 @@ class WeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         ) as fetch:
             await handlers.handler(arabic_event)
         fetch.assert_awaited_once_with("الأهواز", "ar")
+
+    async def test_commands_from_other_language_are_ignored(self):
+        settings = core.get_settings()
+        old_language = settings.current_language
+        old_self_enabled = settings.self_enabled
+        old_timed_enabled = settings.timed_save_enabled
+        old_deleted_enabled = settings.deleted_save_enabled
+        try:
+            language_commands = set(
+                core.COMMAND_ALIASES["language_fa"]
+                + core.COMMAND_ALIASES["language_ar"]
+            )
+
+            settings.current_language = "ar"
+            settings.self_enabled = False
+            event = FakeEvent(".سلف روشن")
+            await handlers.handler(event)
+            self.assertFalse(settings.self_enabled)
+            self.assertEqual(event.edits, [])
+
+            for command in core.PERSIAN_COMMAND_ALIASES - language_commands - {"سلف روشن"}:
+                event = FakeEvent(f".{command}")
+                await handlers.handler(event)
+                self.assertEqual(event.edits, [], command)
+            self.assertFalse(settings.timed_save_enabled)
+
+            settings.current_language = "fa"
+            event = FakeEvent(".سلف تشغيل")
+            await handlers.handler(event)
+            self.assertEqual(event.edits, [])
+
+            for command in core.ARABIC_COMMAND_ALIASES - language_commands - {"سلف تشغيل"}:
+                event = FakeEvent(f".{command}")
+                await handlers.handler(event)
+                self.assertEqual(event.edits, [], command)
+            self.assertFalse(settings.deleted_save_enabled)
+
+            with patch.object(core, "save_settings"):
+                switch_to_arabic = FakeEvent(".زبان عربی")
+                await handlers.handler(switch_to_arabic)
+                self.assertEqual(settings.current_language, "ar")
+                wrong_language_switch = FakeEvent(".زبان فارسی")
+                await handlers.handler(wrong_language_switch)
+                self.assertEqual(settings.current_language, "ar")
+                self.assertEqual(wrong_language_switch.edits, [])
+                switch_to_persian = FakeEvent(".اللغة الفارسية")
+                await handlers.handler(switch_to_persian)
+                self.assertEqual(settings.current_language, "fa")
+        finally:
+            settings.current_language = old_language
+            settings.self_enabled = old_self_enabled
+            settings.timed_save_enabled = old_timed_enabled
+            settings.deleted_save_enabled = old_deleted_enabled
 
     async def test_comparison_fetches_both_cities_and_shows_localized_result(self):
         core.get_settings().current_language = "fa"

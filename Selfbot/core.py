@@ -1,5 +1,4 @@
 import asyncio
-import contextvars
 import json
 import logging
 import os
@@ -42,21 +41,10 @@ except ValueError as error:
 client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 logger = logging.getLogger(__name__)
 SETTINGS_PATH = Path(__file__).resolve().parent.parent / ".selfbot_settings.json"
-_active_client = contextvars.ContextVar("selfbot_active_client", default=None)
-_active_settings = contextvars.ContextVar("selfbot_active_settings", default=None)
-_settings_by_session = {}
 
 
 def get_client():
-    return _active_client.get() or client
-
-
-def set_active_client(active_client):
-    return _active_client.set(active_client)
-
-
-def reset_active_client(token):
-    _active_client.reset(token)
+    return client
 
 
 @dataclass
@@ -78,34 +66,11 @@ class AccountSettings:
 
 
 def get_settings():
-    active_settings = _active_settings.get()
-    if active_settings is not None:
-        return active_settings
-    return get_settings_for(Path(SESSION_NAME).stem)
-
-
-def get_settings_for(session_name):
-    if session_name not in _settings_by_session:
-        settings = AccountSettings(session_name=session_name)
-        _settings_by_session[session_name] = settings
-        load_settings(settings)
-    return _settings_by_session[session_name]
-
-
-def set_active_settings(settings):
-    return _active_settings.set(settings)
-
-
-def reset_active_settings(token):
-    _active_settings.reset(token)
+    return _settings
 
 
 def settings_path_for(session_name):
-    if session_name == Path(SESSION_NAME).stem:
-        return SETTINGS_PATH
-    return SETTINGS_PATH.with_name(
-        f"{SETTINGS_PATH.stem}_{session_name}{SETTINGS_PATH.suffix}"
-    )
+    return SETTINGS_PATH
 
 
 def load_settings(settings, path=None):
@@ -184,7 +149,7 @@ def save_settings(path=None):
     settings_path = Path(path) if path is not None else settings_path_for(
         settings.session_name
     )
-    settings = {
+    saved_values = {
         "current_language": get_settings().current_language,
         "self_enabled": get_settings().self_enabled,
         "timed_save_enabled": get_settings().timed_save_enabled,
@@ -208,7 +173,7 @@ def save_settings(path=None):
             delete=False,
         ) as settings_file:
             temporary_path = Path(settings_file.name)
-            json.dump(settings, settings_file, ensure_ascii=False, indent=2)
+            json.dump(saved_values, settings_file, ensure_ascii=False, indent=2)
             settings_file.write("\n")
         os.replace(temporary_path, settings_path)
         if os.name == "posix":
@@ -218,7 +183,8 @@ def save_settings(path=None):
             temporary_path.unlink()
 
 
-get_settings_for(Path(SESSION_NAME).stem)
+_settings = AccountSettings(session_name=Path(SESSION_NAME).stem)
+load_settings(_settings)
 
 ENEMY_INSULTS = [
     "منیوچ الخرا",
@@ -291,69 +257,93 @@ COMMAND_ALIASES = {
 }
 PERSIAN_COMMAND_ALIASES = frozenset(
     (
-        "سلف روشن",
-        "سلف خاموش",
-        "دشمن",
-        "دشمن روشن",
-        "دشمن خاموش",
-        "سیو خودکار پیام حذف شده روشن",
-        "سیو خودکار پیام های حذف شده روشن",
-        "سیو خودکار پیام‌های حذف‌شده روشن",
-        "سیو خودکار پیام حذف شده خاموش",
-        "سیو خودکار پیام های حذف شده خاموش",
-        "سیو خودکار پیام‌های حذف‌شده خاموش",
-        "سیو خودکار روشن",
-        "سیو خودکار تایم دار روشن",
-        "سیو خودکار خاموش",
-        "سیو خودکار تایم دار خاموش",
+        *COMMAND_ALIASES["self_on"][:1],
+        *COMMAND_ALIASES["self_off"][:1],
+        *COMMAND_ALIASES["language_fa"][:1],
+        *COMMAND_ALIASES["language_ar"][:1],
+        *COMMAND_ALIASES["enemy_on"][:2],
+        *COMMAND_ALIASES["enemy_off"][:1],
+        *COMMAND_ALIASES["deleted_on"][:3],
+        *COMMAND_ALIASES["deleted_off"][:3],
+        *COMMAND_ALIASES["timed_on"][:2],
+        *COMMAND_ALIASES["timed_off"][:2],
         *PERSIAN_HELP_COMMANDS,
         "آیدی",
         "ایدی",
         "ایدیم",
         "آیدی من",
         "ایدی من",
+        "معرفی",
         "دریافت",
         STORY_COMMAND,
         "استوری دانلود",
-        "میو روشن",
-        "میو خاموش",
-        "پینگ",
+        *COMMAND_ALIASES["meow_on"][:1],
+        *COMMAND_ALIASES["meow_off"][:1],
+        *COMMAND_ALIASES["ping"][:1],
+        "دانلود استوری",
         "انیمیشن",
         "قلب",
+        *PERSIAN_WEATHER_COMMANDS,
+        *PERSIAN_WEATHER_COMPARE_COMMANDS,
+        *PERSIAN_WEATHER_HELP_COMMANDS,
+    )
+)
+ARABIC_COMMAND_ALIASES = frozenset(
+    (
+        *COMMAND_ALIASES["self_on"][1:],
+        *COMMAND_ALIASES["self_off"][1:],
+        *COMMAND_ALIASES["language_fa"][1:],
+        *COMMAND_ALIASES["language_ar"][1:],
+        *COMMAND_ALIASES["enemy_on"][2:],
+        *COMMAND_ALIASES["enemy_off"][1:],
+        *COMMAND_ALIASES["deleted_on"][3:],
+        *COMMAND_ALIASES["deleted_off"][3:],
+        *COMMAND_ALIASES["timed_on"][2:],
+        *COMMAND_ALIASES["timed_off"][2:],
+        *ARABIC_HELP_COMMANDS,
+        "معرف",
+        "معرّف",
+        "معرفي",
+        "معرّفي",
+        "استلام",
+        ARABIC_STORY_COMMAND,
+        *COMMAND_ALIASES["meow_on"][1:],
+        *COMMAND_ALIASES["meow_off"][1:],
+        *COMMAND_ALIASES["ping"][1:],
+        "تنزيل قصة",
+        "تحميل قصة",
+        "الب",
+        "القلب",
+        "الانيميشن",
+        "الأنيميشن",
+        *ARABIC_WEATHER_COMMANDS,
+        *ARABIC_WEATHER_COMPARE_COMMANDS,
+        *ARABIC_WEATHER_HELP_COMMANDS,
     )
 )
 
 
-def is_persian_command(text):
-    if text in PERSIAN_COMMAND_ALIASES:
-        return True
-
-    if any(
-        text.startswith(command + " ")
-        for command in ("دریافت", STORY_COMMAND, "استوری دانلود")
-    ):
-        return True
-
+def _matches_command(text, commands):
     return any(
         text == command or text.startswith(command + " ")
-        for commands in (
-            PERSIAN_WEATHER_COMMANDS,
-            PERSIAN_WEATHER_COMPARE_COMMANDS,
-            PERSIAN_WEATHER_HELP_COMMANDS,
-        )
         for command in commands
     )
 
 
+def is_persian_command(text):
+    return _matches_command(text, PERSIAN_COMMAND_ALIASES)
+
+
+def is_arabic_command(text):
+    return _matches_command(text, ARABIC_COMMAND_ALIASES)
+
+
 def is_arabic_weather_command(text):
-    return any(
-        text == command or text.startswith(command + " ")
-        for commands in (
-            ARABIC_WEATHER_COMMANDS,
-            ARABIC_WEATHER_COMPARE_COMMANDS,
-            ARABIC_WEATHER_HELP_COMMANDS,
-        )
-        for command in commands
+    return _matches_command(
+        text,
+        ARABIC_WEATHER_COMMANDS
+        + ARABIC_WEATHER_COMPARE_COMMANDS
+        + ARABIC_WEATHER_HELP_COMMANDS,
     )
 
 

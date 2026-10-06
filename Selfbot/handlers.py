@@ -97,13 +97,16 @@ async def handler(event):
 
     text = text[1:].strip()
 
+    language = core.get_settings().current_language
     if (
-        core.get_settings().current_language == "ar"
+        language == "ar"
         and core.is_persian_command(text)
-        and text not in core.COMMAND_ALIASES["language_fa"]
     ):
         return
-    if core.get_settings().current_language == "fa" and core.is_arabic_weather_command(text):
+    if (
+        language == "fa"
+        and core.is_arabic_command(text)
+    ):
         return
 
     if text in core.COMMAND_ALIASES["self_on"]:
@@ -460,8 +463,8 @@ async def handler(event):
             )
 
 
-def register_handlers(client, settings=None):
-    settings = settings or core.get_settings()
+def register_handlers(client=None):
+    client = client or core.client
     registrations = (
         (cache_messages, events.NewMessage()),
         (enemy_auto_reply_handler, events.NewMessage()),
@@ -469,18 +472,4 @@ def register_handlers(client, settings=None):
         (handler, events.NewMessage(outgoing=True)),
     )
     for callback, event_builder in registrations:
-        async def dispatch(
-            event,
-            callback=callback,
-            active_client=client,
-            active_settings=settings,
-        ):
-            client_token = core.set_active_client(active_client)
-            settings_token = core.set_active_settings(active_settings)
-            try:
-                await callback(event)
-            finally:
-                core.reset_active_settings(settings_token)
-                core.reset_active_client(client_token)
-
-        client.add_event_handler(dispatch, event_builder)
+        client.add_event_handler(callback, event_builder)
