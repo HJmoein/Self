@@ -213,7 +213,9 @@ async def send_inline_help_panel(event, command):
         await core.edit_response(event, message)
         return
 
-    destination = await event.get_input_chat()
+    destination = event.input_chat
+    if destination is None:
+        destination = await event.get_input_chat()
     if destination is None:
         message = (
             "شناسهٔ گفتگوی فعلی برای ارسال پنل راهنما پیدا نشد."
