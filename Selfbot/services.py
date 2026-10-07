@@ -284,14 +284,18 @@ async def save_deleted_message(item):
                     f"{core.localized_text('[مدیا قابل بازیابی نبود]')}"
                 )
                 return
+            media_caption = f"{caption}\n\n{body}"
             await core.run_with_floodwait(
                 lambda: core.get_client().send_file(
                     "me",
                     file_path,
-                    caption=caption,
+                    caption=media_caption[:1024],
                 )
             )
-            await _send_report_text_to_saved_messages(body)
+            if len(media_caption) > 1024:
+                await _send_report_text_to_saved_messages(
+                    media_caption[1024:]
+                )
     except (OSError, RPCError) as error:
         core.logger.error(
             "Could not save deleted message_id=%s: %s",
