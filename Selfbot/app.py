@@ -3,6 +3,8 @@
 import asyncio
 import os
 
+from telethon.errors import RPCError
+
 from . import core
 
 
@@ -10,6 +12,15 @@ async def main():
     from . import handlers, services
 
     await core.client.start()
+    try:
+        await services.prepare_inline_help_bot(core.client)
+    except (OSError, RPCError, TimeoutError, TypeError, ValueError) as error:
+        core.logger.warning(
+            "Could not pre-resolve the inline help bot; it will be resolved "
+            "when the help panel is requested (%s).",
+            type(error).__name__,
+        )
+
     settings = core.get_settings()
     handlers.register_handlers(core.client)
 

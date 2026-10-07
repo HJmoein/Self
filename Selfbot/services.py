@@ -13,6 +13,37 @@ from telethon.tl.types import Channel, Chat, User
 from . import core
 
 
+_inline_help_bot_entity = None
+_inline_help_bot_client = None
+_inline_help_bot_username = None
+
+
+async def _get_inline_help_bot_entity(client, bot_username):
+    global _inline_help_bot_client
+    global _inline_help_bot_entity
+    global _inline_help_bot_username
+
+    normalized_username = bot_username.casefold()
+    if (
+        _inline_help_bot_entity is not None
+        and _inline_help_bot_client is client
+        and _inline_help_bot_username == normalized_username
+    ):
+        return _inline_help_bot_entity
+
+    entity = await client.get_input_entity(bot_username)
+    _inline_help_bot_client = client
+    _inline_help_bot_entity = entity
+    _inline_help_bot_username = normalized_username
+    return entity
+
+
+async def prepare_inline_help_bot(client=None):
+    bot_username = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
+    if bot_username:
+        await _get_inline_help_bot_entity(client or core.get_client(), bot_username)
+
+
 def message_snapshot(message, sender=None):
     sender = sender or getattr(message, "sender", None)
     first_name = getattr(sender, "first_name", None) or ""
@@ -220,6 +251,8 @@ async def send_inline_help_panel(event, command):
         await core.edit_response(event, message)
         return
 
+    bot_entity = await _get_inline_help_bot_entity(event.client, bot_username)
+
     destination = event.input_chat
     if destination is None:
         destination = await event.get_input_chat()
@@ -233,7 +266,7 @@ async def send_inline_help_panel(event, command):
         return
 
     results = await event.client.inline_query(
-        bot_username,
+        bot_entity,
         command,
         entity=destination,
     )
