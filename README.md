@@ -56,6 +56,10 @@ Inline mode:
 - The storage section is labeled "نگهبان چت" / "حارس الدردشة". Its inline
   buttons toggle timed-message, deleted-message, and private-message edit
   reports; enabled buttons are green and disabled buttons are red.
+- Deleted-message capture is limited to private chats.
+- When one deletion event removes more than 10 messages, they are sent as one
+  HTML report instead of individual messages. The report embeds supported
+  images and playable audio previews, including voice messages.
 - Telegram does not let bots close the inline search/results picker itself;
   the five-second timer starts only after the panel result is selected and sent.
 

@@ -1,7 +1,6 @@
 """Telethon event handlers and command routing."""
 
 import asyncio
-import tempfile
 import time
 
 from telethon import events
@@ -12,14 +11,29 @@ from . import core, services, ui, weather
 async def cache_messages(event):
     if event.is_private and event.chat_id is not None and event.message is not None:
         settings = core.get_settings()
+        sender = getattr(event.message, "sender", None)
+        if (
+            settings.deleted_save_enabled
+            and sender is None
+            and event.message.sender_id is not None
+        ):
+            try:
+                sender = await event.get_sender()
+            except Exception:
+                core.logger.warning(
+                    "Could not resolve sender for private message %s",
+                    event.message.id,
+                    exc_info=True,
+                )
+
         settings.message_cache[event.chat_id].append(
-            services.message_snapshot(event.message)
+            services.message_snapshot(event.message, sender)
         )
         settings.message_index[event.message.id].add(event.chat_id)
 
         if (
             not event.out
-            and core.get_settings().timed_save_enabled
+            and settings.timed_save_enabled
             and services.is_timed_message(event.message)
         ):
             asyncio.create_task(
@@ -74,11 +88,6 @@ async def edited_message_handler(event):
         cached_messages[cached_index] = updated
 
 
-async def inline_panel_control_handler(event):
-    if await services.inline_panel_control_handler(event):
-        raise events.StopPropagation
-
-
 async def enemy_auto_reply_handler(event):
     """هنگام پیام دادن کاربر مشخص شده به عنوان دشمن، پاسخ خودکار ارسال می‌شود"""
     settings = core.get_settings()
@@ -108,6 +117,8 @@ async def enemy_auto_reply_handler(event):
 async def deleted_message_handler(event):
     settings = core.get_settings()
     if not settings.deleted_save_enabled:
+        return
+    if event.chat_id is not None and not event.is_private:
         return
 
     chat_ids = set()
@@ -148,10 +159,8 @@ async def deleted_message_handler(event):
                 if sender is not None:
                     item.update(services.message_snapshot(message, sender))
 
-        settings.deleted_messages[chat_id].extend(removed)
-
-        if len(settings.deleted_messages[chat_id]) > 10:
-            await services.send_deleted_messages_report(chat_id)
+        if len(removed) > 10:
+            await services.send_deleted_messages_report(chat_id, removed)
         else:
             for item in removed:
                 await services.save_deleted_message(item)
@@ -453,36 +462,37 @@ async def handler(event):
     )
     if story_command:
         link = text[len(story_command):].strip()
-
         if not core.STORY_LINK_PATTERN.match(link):
             command_example = (
                 core.ARABIC_STORY_COMMAND
-                if core.get_settings().current_language == "ar"
+                if language == "ar"
                 else core.STORY_COMMAND
             )
             await core.edit_response(
                 event,
-                f"فرمت درست:\n.{command_example} https://t.me/username/s/123"
+                (
+                    f"الصيغة الصحيحة:\n.{command_example} "
+                    "https://t.me/username/s/123"
+                    if language == "ar"
+                    else f"فرمت درست:\n.{command_example} "
+                    "https://t.me/username/s/123"
+                ),
             )
             return
 
         await core.edit_response(
             event,
-            "⏳ دانلود استوری شروع شد...\n"
-            "[░░░░░░░░░░] 0%"
+            (
+                "⏳ در حال دانلود استوری..."
+                if language == "fa"
+                else "⏳ جارٍ تحميل القصة..."
+            ),
         )
-
-        error_message = await services.download_story_link(
-            chat_id,
-            link,
-            event
-        )
-
+        error_message = await services.download_story_link(chat_id, link)
         if error_message:
             await core.edit_response(event, error_message)
         else:
             await event.delete()
-
         return
 
     if text in core.COMMAND_ALIASES["meow_on"]:
@@ -523,74 +533,14 @@ async def handler(event):
             f"پینگ : {ping:.0f}ms"
         )
 
-    elif text in core.COMMAND_ALIASES["story_reply"]:
-        reply = await event.get_reply_message()
-
-        if reply is None or not reply.media:
-            await core.edit_response(
-                event,
-                "روی استوری یا پیام استوری ریپلای کن و دوباره بنویس: "
-                ".استوری دانلود"
-            )
-            return
-
-        await core.edit_response(
-            event,
-            "در حال دانلود استوری... ⏳"
-        )
-
-        try:
-            with tempfile.TemporaryDirectory(
-                prefix="meow_story_"
-            ) as folder:
-
-                file_path = await core.get_client().download_media(
-                    reply,
-                    file=folder
-                )
-
-                if not file_path:
-                    await core.edit_response(
-                        event,
-                        "دانلود این استوری ممکن نیست."
-                    )
-                    return
-
-                await core.get_client().send_file(
-                    chat_id,
-                    file_path,
-                    caption=core.localized_text("استوری دانلود شد ✅")
-                )
-
-            await event.delete()
-
-        except Exception as error:
-            await core.edit_response(
-                event,
-                f"دانلود استوری انجام نشد: {type(error).__name__}"
-            )
-
-
 def register_handlers(client=None):
     client = client or core.client
-    registrations = []
-    inline_bot_id = services.inline_help_bot_id()
-    if inline_bot_id is not None:
-        registrations.append(
-            (
-                inline_panel_control_handler,
-                events.NewMessage(
-                    incoming=True,
-                    from_users=inline_bot_id,
-                ),
-            )
-        )
-    registrations.extend((
+    registrations = (
         (cache_messages, events.NewMessage()),
         (enemy_auto_reply_handler, events.NewMessage()),
         (deleted_message_handler, events.MessageDeleted()),
         (edited_message_handler, events.MessageEdited()),
         (handler, events.NewMessage(outgoing=True)),
-    ))
+    )
     for callback, event_builder in registrations:
         client.add_event_handler(callback, event_builder)

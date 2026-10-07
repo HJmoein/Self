@@ -59,6 +59,10 @@ async def main():
         from .inline_bot import build_inline_application
 
         inline_application = build_inline_application(token)
+        account = await core.client.get_me()
+        if account is None or account.id is None:
+            raise RuntimeError("Could not determine the Selfbot account ID.")
+        inline_application.bot_data["owner_id"] = account.id
     else:
         core.logger.warning(
             "BOT_TOKEN is not set; inline mode is disabled. "

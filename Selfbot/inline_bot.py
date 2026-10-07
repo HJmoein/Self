@@ -28,7 +28,6 @@ PANEL_CLOSE_DELAY_SECONDS = 5
 CLOSE_CALLBACK_DATA = "close_inline_panel"
 PAGE_CALLBACK_PREFIX = "panel_page"
 PANEL_SETTINGS_QUERY_PREFIX = "__selfbot_settings__:"
-PANEL_CONTROL_MESSAGE_PREFIX = "__selfbot_panel_set__:"
 PANEL_SETTING_NAMES = (
     "timed_save_enabled",
     "deleted_save_enabled",
@@ -76,8 +75,8 @@ PANEL_PAGES = {
             "<b>ابزارها</b>\nبررسی پاسخ، شناسه‌ها و ابزار تبدیل عکس به GIF.",
         ),
         "receive": (
-            "دریافت",
-            "<b>دریافت پیام و استوری</b>\nپیام کانال/گروه را با ریپلای یا لینک دریافت کن.",
+            "مدیا",
+            "<b>مدیا</b>\nپیام کانال/گروه را با ریپلای یا استوری را با لینک دریافت کن.",
         ),
         "weather": (
             "هواشناسی",
@@ -114,8 +113,8 @@ PANEL_PAGES = {
             "<b>الأدوات</b>\nفحص الاستجابة والمعرّفات وتحويل الصور إلى GIF.",
         ),
         "receive": (
-            "الاستلام",
-            "<b>استلام الرسائل والقصص</b>\nاستلام رسالة قناة/مجموعة بالرد أو بالرابط.",
+            "الوسائط",
+            "<b>الوسائط</b>\nاستلام رسالة قناة/مجموعة بالرد أو قصة عبر رابطها.",
         ),
         "weather": (
             "الطقس",
@@ -133,7 +132,6 @@ PANEL_COMMANDS = {
         "self": (
             (".سلف روشن", "روشن‌کردن سلف"),
             (".سلف خاموش", "خاموش‌کردن سلف"),
-            (".راهنما", "نمایش دوبارهٔ پنل راهنما"),
         ),
         "language": (
             (".زبان فارسی", "انتخاب زبان فارسی"),
@@ -151,12 +149,11 @@ PANEL_COMMANDS = {
             (".پینگ", "بررسی زمان پاسخ"),
             (".آیدی", "با ریپلای روی پیام کاربر"),
             (".ایدیم", "نمایش شناسهٔ حساب خودت"),
-            (".گیف", "با ریپلای روی عکس؛ تبدیل به GIF ثابت"),
+            (".گیف", "با ریپلای روی عکس؛ تبدیل به GIF"),
         ),
         "receive": (
             (".دریافت", "با ریپلای یا افزودن لینک پیام کانال/گروه"),
             (".دانلود استوری <لینک>", "دانلود استوری با لینک"),
-            (".استوری دانلود", "با ریپلای روی استوری"),
         ),
         "weather": (
             (".هواشناسی <شهر>", "وضعیت آب‌وهوا"),
@@ -169,7 +166,6 @@ PANEL_COMMANDS = {
         "self": (
             (".سلف تشغيل", "تشغيل السلف"),
             (".سلف إيقاف", "إيقاف السلف"),
-            (".مساعدة", "عرض لوحة المساعدة مجددًا"),
         ),
         "language": (
             (".اللغة الفارسية", "اختيار اللغة الفارسية"),
@@ -187,12 +183,11 @@ PANEL_COMMANDS = {
             (".بنغ", "فحص زمن الاستجابة"),
             (".معرف", "بالرد على رسالة المستخدم"),
             (".معرفي", "عرض معرّف حسابك"),
-            (".تحويل جيف", "بالرد على صورة؛ تحويلها إلى GIF ثابت"),
+            (".تحويل جيف", "بالرد على صورة؛ تحويلها إلى GIF"),
         ),
         "receive": (
             (".استلام", "بالرد أو بإضافة رابط رسالة القناة/المجموعة"),
             (".تحميل قصة <الرابط>", "تنزيل قصة باستخدام الرابط"),
-            (".تنزيل قصة", "بالرد على القصة"),
         ),
         "weather": (
             (".طقس <مدينة>", "حالة الطقس"),
@@ -322,14 +317,25 @@ def _panel_settings_for(context, user_id):
     settings_by_user = context.application.bot_data["panel_settings"]
     return settings_by_user.setdefault(
         user_id,
-        {name: False for name in PANEL_SETTING_NAMES},
+        {
+            name: getattr(core.get_settings(), name)
+            for name in PANEL_SETTING_NAMES
+        },
     )
+
+
+def _is_panel_owner(query, context):
+    return query.from_user.id == context.application.bot_data.get("owner_id")
 
 
 async def inline_query_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.inline_query
+    if query.from_user.id != context.application.bot_data.get("owner_id"):
+        await query.answer([], cache_time=0, is_personal=True)
+        return
+
     language = _query_language(
         query.query,
         core.get_settings().current_language,
@@ -434,6 +440,9 @@ async def panel_page_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.callback_query
+    if not _is_panel_owner(query, context):
+        await query.answer()
+        return
     await query.answer()
     _prefix, language, page = query.data.split(":", 2)
     if language not in PANEL_PAGES or (
@@ -462,6 +471,9 @@ async def panel_toggle_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.callback_query
+    if not _is_panel_owner(query, context):
+        await query.answer()
+        return
 
     _prefix, language, setting_name = query.data.split(":", 2)
     if language not in PANEL_PAGES or setting_name not in {
@@ -476,42 +488,62 @@ async def panel_toggle_callback(
     user_settings = _panel_settings_for(context, user_id)
     enabled = not user_settings[setting_name]
     try:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=(
-                f"{PANEL_CONTROL_MESSAGE_PREFIX}"
-                f"{setting_name}:{int(enabled)}"
-            ),
-        )
-    except TelegramError as error:
+        setattr(core.get_settings(), setting_name, enabled)
+        core.save_settings()
+    except OSError as error:
         logger.warning(
-            "Could not send inline panel setting to user_id=%s: %s",
+            "Could not persist inline panel setting for user_id=%s: %s",
             user_id,
             type(error).__name__,
+            exc_info=True,
         )
         await query.answer(
-            "برای فعال‌شدن دکمه‌ها، یک‌بار ربات را در گفتگوی خصوصی Start کن."
+            "ذخیره تنظیم انجام نشد؛ گزارش برنامه را بررسی کن."
             if language == "fa"
-            else "اضغط Start في المحادثة الخاصة مع البوت لتفعيل الأزرار.",
+            else "تعذّر حفظ الإعداد؛ راجع سجل البرنامج.",
             show_alert=True,
         )
         return
 
     user_settings[setting_name] = enabled
-    await query.answer()
-    await query.edit_message_reply_markup(
-        reply_markup=_page_markup(
-            language,
-            "guardian",
-            user_settings,
+    try:
+        await query.edit_message_reply_markup(
+            reply_markup=_page_markup(
+                language,
+                "guardian",
+                user_settings,
+            )
         )
-    )
+    except TelegramError as error:
+        logger.warning(
+            "Could not refresh inline panel for user_id=%s: %s",
+            user_id,
+            str(error).replace("\n", " ")[:100],
+        )
+        await query.answer(
+            (
+                "تنظیم ذخیره شد، اما نمایش پنل به‌روزرسانی نشد: "
+                f"{str(error).replace(chr(10), ' ')[:100]}"
+            )
+            if language == "fa"
+            else (
+                "تم حفظ الإعداد لكن تعذّر تحديث اللوحة: "
+                f"{str(error).replace(chr(10), ' ')[:100]}"
+            ),
+            show_alert=True,
+        )
+        return
+
+    await query.answer()
 
 
 async def close_inline_panel_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.callback_query
+    if not _is_panel_owner(query, context):
+        await query.answer()
+        return
     await query.answer()
 
     inline_message_id = query.inline_message_id

@@ -54,36 +54,6 @@ def inline_help_bot_id():
     return getattr(_inline_help_bot_entity, "user_id", None)
 
 
-async def inline_panel_control_handler(event):
-    bot_id = inline_help_bot_id()
-    if (
-        bot_id is None
-        or not event.is_private
-        or event.out
-        or event.sender_id != bot_id
-    ):
-        return False
-
-    parts = event.raw_text.strip().split(":")
-    if len(parts) != 3 or parts[0] != "__selfbot_panel_set__":
-        return False
-
-    setting_name, value = parts[1:]
-    if setting_name not in {
-        "timed_save_enabled",
-        "deleted_save_enabled",
-        "edited_save_enabled",
-    } or value not in {"0", "1"}:
-        core.logger.warning("Received an invalid inline panel control message.")
-        await event.delete()
-        return True
-
-    setattr(core.get_settings(), setting_name, value == "1")
-    core.save_settings()
-    await event.delete()
-    return True
-
-
 def message_snapshot(message, sender=None):
     sender = sender or getattr(message, "sender", None)
     first_name = getattr(sender, "first_name", None) or ""
@@ -253,6 +223,10 @@ async def save_timed_message(message, sender=None):
             )
 
             if not file_path:
+                core.logger.warning(
+                    "Could not download timed media for message_id=%s",
+                    message.id,
+                )
                 return
 
             await core.run_with_floodwait(
@@ -262,8 +236,13 @@ async def save_timed_message(message, sender=None):
                     caption=timed_message_caption(message, sender),
                 )
             )
-    except Exception:
-        pass
+    except (OSError, RPCError) as error:
+        core.logger.error(
+            "Could not save timed message_id=%s: %s",
+            message.id,
+            type(error).__name__,
+            exc_info=True,
+        )
 
 
 def deleted_message_caption(item):
@@ -281,28 +260,59 @@ async def save_deleted_message(item):
     caption = deleted_message_caption(item)
     original_message = item["message"]
 
+    body = item["text"] or core.localized_text("[بدون متن]")
+    report = f"{caption}\n\n{body}"
+    if not original_message.media:
+        await _send_report_text_to_saved_messages(report)
+        return
+
     try:
-        if original_message.media:
+        with tempfile.TemporaryDirectory(prefix="deleted_message_") as folder:
+            file_path = await core.run_with_floodwait(
+                lambda: core.get_client().download_media(
+                    original_message,
+                    file=folder,
+                )
+            )
+            if not file_path:
+                core.logger.warning(
+                    "Could not download deleted media for message_id=%s",
+                    item["id"],
+                )
+                await _send_report_text_to_saved_messages(
+                    f"{caption}\n\n{body}\n\n"
+                    f"{core.localized_text('[مدیا قابل بازیابی نبود]')}"
+                )
+                return
             await core.run_with_floodwait(
                 lambda: core.get_client().send_file(
                     "me",
-                    original_message.media,
-                    caption=caption + "\n\n" + (item["text"] or ""),
+                    file_path,
+                    caption=caption,
                 )
             )
-        else:
-            await core.run_with_floodwait(
-                lambda: core.get_client().send_message(
-                    "me",
-                    caption + "\n\n" + (item["text"] or core.localized_text("[بدون متن]")),
-                )
-            )
-    except Exception:
+            await _send_report_text_to_saved_messages(body)
+    except (OSError, RPCError) as error:
+        core.logger.error(
+            "Could not save deleted message_id=%s: %s",
+            item["id"],
+            type(error).__name__,
+            exc_info=True,
+        )
+        await _send_report_text_to_saved_messages(
+            f"{caption}\n\n{body}\n\n"
+            f"{core.localized_text('[دانلود مدیا ناموفق بود]')}"
+        )
+
+
+async def _send_report_text_to_saved_messages(text):
+    chunks = [
+        text[index:index + 4096]
+        for index in range(0, len(text), 4096)
+    ] or [""]
+    for chunk in chunks:
         await core.run_with_floodwait(
-            lambda: core.get_client().send_message(
-                "me",
-                caption + "\n\n" + (item["text"] or core.localized_text("[مدیا قابل بازیابی نبود]")),
-            )
+            lambda chunk=chunk: core.get_client().send_message("me", chunk)
         )
 
 
@@ -365,19 +375,45 @@ async def save_edited_message_report(previous, updated):
     message = updated["message"]
 
     if message.media:
-        report = edited_message_report_text(previous, updated, 1024)
-        await core.run_with_floodwait(
-            lambda: core.get_client().send_file(
-                "me",
-                message.media,
-                caption=report[:1024],
+        report = edited_message_report(previous, updated)
+        try:
+            with tempfile.TemporaryDirectory(prefix="edited_message_") as folder:
+                file_path = await core.run_with_floodwait(
+                    lambda: core.get_client().download_media(message, file=folder)
+                )
+                if not file_path:
+                    core.logger.warning(
+                        "Could not download edited media for message_id=%s",
+                        updated["id"],
+                    )
+                    await _send_report_text_to_saved_messages(
+                        edited_message_report_text(previous, updated, 4096)
+                    )
+                    return
+                header = report.split("\n\n", 1)[0]
+                details = report.split("\n\n", 1)[1] if "\n\n" in report else ""
+                await core.run_with_floodwait(
+                    lambda: core.get_client().send_file(
+                        "me",
+                        file_path,
+                        caption=header[:1024],
+                    )
+                )
+                if details:
+                    await _send_report_text_to_saved_messages(details)
+        except (OSError, RPCError) as error:
+            core.logger.error(
+                "Could not save edited media message_id=%s: %s",
+                updated["id"],
+                type(error).__name__,
+                exc_info=True,
             )
-        )
+            await _send_report_text_to_saved_messages(
+                edited_message_report_text(previous, updated, 4096)
+            )
     else:
         report = edited_message_report_text(previous, updated, 4096)
-        await core.run_with_floodwait(
-            lambda: core.get_client().send_message("me", report[:4096])
-        )
+        await _send_report_text_to_saved_messages(report)
 
 
 async def send_inline_help_panel(event, command):
@@ -436,7 +472,8 @@ async def deleted_media_preview(item, folder, index, remaining_size):
     media = getattr(message, "media", None)
     document = getattr(media, "document", None)
     photo = getattr(media, "photo", None)
-    mime_type = getattr(document, "mime_type", None)
+    mime_type = (getattr(document, "mime_type", None) or "")
+    mime_type = mime_type.split(";", 1)[0].strip().lower()
     unavailable_note = (
         '<p class="media-note">'
         f"{html.escape(core.localized_text('پیش‌نمایش این مدیا در HTML درج نشد؛ فایل جداگانه ذخیره شده است.'))}"
@@ -445,13 +482,26 @@ async def deleted_media_preview(item, folder, index, remaining_size):
     if photo is not None:
         mime_type = "image/jpeg"
 
-    if mime_type not in {
+    supported_image_types = {
         "image/jpeg",
         "image/png",
         "image/gif",
         "image/webp",
-        "video/mp4",
-    }:
+    }
+    supported_audio_types = {
+        "audio/aac",
+        "audio/flac",
+        "audio/mp4",
+        "audio/mpeg",
+        "audio/ogg",
+        "audio/wav",
+        "audio/webm",
+        "audio/x-wav",
+    }
+    supported_video_types = {"video/mp4"}
+    if mime_type not in (
+        supported_image_types | supported_audio_types | supported_video_types
+    ):
         return unavailable_note, 0
 
     max_preview_size = min(10 * 1024 * 1024, remaining_size)
@@ -499,10 +549,16 @@ async def deleted_media_preview(item, folder, index, remaining_size):
         f"data:{mime_type};base64,"
         f"{base64.b64encode(media_bytes).decode('ascii')}"
     )
-    if mime_type == "video/mp4":
+    if mime_type in supported_video_types:
         return (
             '<video controls preload="metadata" class="media-preview">'
             f'<source src="{data_uri}" type="video/mp4"></video>',
+            len(media_bytes),
+        )
+    if mime_type in supported_audio_types:
+        return (
+            '<audio controls preload="metadata" class="media-preview">'
+            f'<source src="{data_uri}" type="{mime_type}"></audio>',
             len(media_bytes),
         )
     return (
@@ -512,10 +568,9 @@ async def deleted_media_preview(item, folder, index, remaining_size):
     )
 
 
-async def send_deleted_messages_report(chat_id):
+async def send_deleted_messages_report(chat_id, deleted_messages):
     settings = core.get_settings()
-    messages = list(settings.deleted_messages[chat_id])
-
+    messages = list(deleted_messages)
     if len(messages) <= 10:
         return
 
@@ -568,17 +623,11 @@ async def send_deleted_messages_report(chat_id):
             lambda: core.get_client().send_file(
                 "me",
                 report_path,
-                caption=core.localized_text(f"گزارش {len(messages)} پیام حذف‌شده ✅"),
+                caption=core.localized_text(
+                    f"گزارش {len(messages)} پیام حذف‌شده ✅"
+                ),
             )
         )
-
-    reported = {id(item) for item in messages}
-    settings.deleted_messages[chat_id] = [
-        item
-        for item in settings.deleted_messages[chat_id]
-        if id(item) not in reported
-    ]
-
 
 async def meow_loop(chat_id):
     try:
@@ -626,96 +675,6 @@ async def handle_animation_command(event):
             event,
             f"اجرای انیمیشن قلب انجام نشد: {type(error).__name__}",
         )
-
-
-async def download_story_link(chat_id, link, status_message=None):
-    match = core.STORY_LINK_PATTERN.match(link.strip())
-
-    if match is None:
-        return "لینک معتبر استوری نیست. نمونه: https://t.me/username/s/123"
-
-    username = match.group("username")
-    story_id = int(match.group("story_id"))
-
-    try:
-        peer = await core.get_client().get_input_entity(username)
-
-        result = await core.run_with_floodwait(
-            lambda: core.get_client()(
-                GetStoriesByIDRequest(
-                    peer=peer,
-                    id=[story_id]
-                )
-            )
-        )
-
-        if not result.stories:
-            return "این استوری پیدا نشد یا دیگر در دسترس نیست."
-
-        story = result.stories[0]
-
-        if not story.media:
-            return "این استوری فایل قابل دانلود ندارد."
-
-        last_update = 0.0
-        frames = ("⏳", "⌛", "🔄", "✨")
-        frame_index = 0
-
-        def show_progress(downloaded, total):
-            nonlocal last_update, frame_index
-
-            if status_message is None or not total:
-                return
-
-            now = time.monotonic()
-
-            if now - last_update < 2:
-                return
-
-            last_update = now
-
-            message = core.progress_text(
-                downloaded,
-                total,
-                frames[frame_index % len(frames)],
-                title="دانلود استوری",
-            )
-
-            frame_index += 1
-
-            asyncio.create_task(
-                status_message.edit(core.localized_text(message))
-            )
-
-        with tempfile.TemporaryDirectory(
-            prefix="meow_story_"
-        ) as folder:
-
-            file_path = await core.run_with_floodwait(
-                lambda: core.get_client().download_media(
-                    story.media,
-                    file=folder,
-                    progress_callback=show_progress,
-                )
-            )
-
-            if not file_path:
-                return "دانلود استوری انجام نشد."
-
-            await core.run_with_floodwait(
-                lambda: core.get_client().send_file(
-                    chat_id,
-                    file_path,
-                    caption=core.localized_text("استوری دانلود شد ✅"),
-                    part_size_kb=512,
-                    supports_streaming=True,
-                )
-            )
-
-        return None
-
-    except Exception as error:
-        return f"دانلود استوری انجام نشد: {type(error).__name__}"
 
 
 def get_message_sender_name(sender, chat=None, post_author=None):
@@ -916,6 +875,73 @@ def detect_media_type(message):
     if getattr(message, "gif", None) is not None:
         return "GIF"
     return "Media"
+
+
+async def download_story_link(chat_id, link):
+    language = core.get_settings().current_language
+    match = core.STORY_LINK_PATTERN.match(link.strip())
+    if match is None:
+        return (
+            "لینک معتبر استوری نیست. نمونه: https://t.me/username/s/123"
+            if language == "fa"
+            else "رابط القصة غير صالح. مثال: https://t.me/username/s/123"
+        )
+
+    try:
+        peer = await core.get_client().get_input_entity(match.group("username"))
+        result = await core.run_with_floodwait(
+            lambda: core.get_client()(
+                GetStoriesByIDRequest(
+                    peer=peer,
+                    id=[int(match.group("story_id"))],
+                )
+            )
+        )
+        if not result.stories or not result.stories[0].media:
+            return (
+                "این استوری پیدا نشد یا فایل قابل دانلود ندارد."
+                if language == "fa"
+                else "لم يتم العثور على القصة أو لا تحتوي على وسائط قابلة للتنزيل."
+            )
+
+        with tempfile.TemporaryDirectory(prefix="story_download_") as folder:
+            file_path = await core.run_with_floodwait(
+                lambda: core.get_client().download_media(
+                    result.stories[0].media,
+                    file=folder,
+                )
+            )
+            if not file_path:
+                return (
+                    "دانلود استوری انجام نشد."
+                    if language == "fa"
+                    else "تعذّر تنزيل القصة."
+                )
+            await core.run_with_floodwait(
+                lambda: core.get_client().send_file(
+                    chat_id,
+                    file_path,
+                    caption=(
+                        "استوری دانلود شد ✅"
+                        if language == "fa"
+                        else "تم تنزيل القصة ✅"
+                    ),
+                    supports_streaming=True,
+                )
+            )
+    except (OSError, RPCError, ValueError) as error:
+        core.logger.warning(
+            "Could not download story from link: %s",
+            type(error).__name__,
+            exc_info=True,
+        )
+        return (
+            f"دانلود استوری انجام نشد: {type(error).__name__}"
+            if language == "fa"
+            else f"تعذّر تنزيل القصة: {type(error).__name__}"
+        )
+
+    return None
 
 
 async def download_channel_message(chat_id, message=None, link=None, status_message=None):
