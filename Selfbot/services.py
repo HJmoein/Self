@@ -213,10 +213,20 @@ async def send_inline_help_panel(event, command):
         await core.edit_response(event, message)
         return
 
+    destination = await event.get_input_chat()
+    if destination is None:
+        message = (
+            "شناسهٔ گفتگوی فعلی برای ارسال پنل راهنما پیدا نشد."
+            if core.get_settings().current_language != "ar"
+            else "تعذّر تحديد المحادثة الحالية لإرسال لوحة المساعدة."
+        )
+        await core.edit_response(event, message)
+        return
+
     results = await event.client.inline_query(
         bot_username,
         command,
-        entity=event.chat_id,
+        entity=destination,
     )
     if not results:
         message = (
@@ -227,7 +237,7 @@ async def send_inline_help_panel(event, command):
         await core.edit_response(event, message)
         return
 
-    await results[0].click(entity=event.chat_id)
+    await results[0].click(entity=destination)
     await event.delete()
 
 
