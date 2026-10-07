@@ -24,15 +24,11 @@ Inline mode:
 - Add your Telegram Bot API token as `BOT_TOKEN=...` in `.env` (keep it secret).
 - Set `BOT_USERNAME=Moein_Helperbot` in `.env` to the inline bot username
   (without the `@`).
-- When using two Selfbot accounts on separate servers, run inline polling on
-  only one server: set `BOT_TOKEN` there. Leave `BOT_TOKEN` empty on the other
-  server, but keep the same `BOT_USERNAME`; it can still query the central
-  inline bot.
-- The polling server automatically allows its logged-in Selfbot account. Add
-  the numeric Telegram IDs of other installed Selfbot accounts to
-  `BOT_ALLOWED_USER_IDS=id1,id2` in the central server's `.env`. These are
-  allowed installations, not owner privileges. Other Telegram users cannot
-  open the panel or use its buttons. Restart the central Selfbot after changes.
+- For a private helper bot per Selfbot installation, put that helper's own
+  `BOT_TOKEN` and `BOT_USERNAME` in the installation's `.env`. Each distinct
+  bot token can be polled by its own Selfbot process without conflicting with
+  another helper bot. Do not share a helper token with processes running on
+  multiple servers.
 - Use a separate `SESSION_NAME` for each Telegram account. Settings files are
   stored with their sessions and must not be copied between accounts. Each Selfbot
   client only processes commands sent by its own logged-in account, and
@@ -50,9 +46,11 @@ Inline mode:
   current Selfbot language is used for other help aliases. The home panel
   closes after five seconds if left untouched. Choosing a section cancels the
   timer so the command pages remain open while navigating.
-- Any account can query the inline help bot. Guardian changes are sent to the
-  account that clicked and saved by that account's own Selfbot; account
-  settings are not shared.
+- The inline helper has no account allowlist; anyone who knows its username
+  can query it. Use a private, dedicated helper bot if you want to keep each
+  installation's panel separate. Guardian changes are sent to the account that
+  clicked and saved by that account's own Selfbot; account settings are not
+  shared.
 - Commands are displayed in monospace formatting so they are easy to select
   and copy from the message.
 - The storage section is labeled "نگهبان چت" / "حارس الدردشة". Its inline

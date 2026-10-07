@@ -318,21 +318,6 @@ def _query_language(query_text, default_language):
     return default_language
 
 
-def _is_allowed_user(update, context):
-    user = update.effective_user
-    allowed_user_ids = context.application.bot_data["allowed_user_ids"]
-    return user is not None and user.id in allowed_user_ids
-
-
-async def _reject_unauthorized_callback(query):
-    await query.answer(
-        "این پنل برای این اکانت فعال نشده است."
-        if core.get_settings().current_language == "fa"
-        else "هذه اللوحة غير مفعّلة لهذا الحساب.",
-        show_alert=True,
-    )
-
-
 def _panel_settings_for(context, user_id):
     settings_by_user = context.application.bot_data["panel_settings"]
     return settings_by_user.setdefault(
@@ -345,15 +330,6 @@ async def inline_query_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.inline_query
-    if not _is_allowed_user(update, context):
-        user = update.effective_user
-        logger.warning(
-            "Rejected inline panel query from unregistered user_id=%s.",
-            user.id if user is not None else None,
-        )
-        await query.answer([], cache_time=0, is_personal=True)
-        return
-
     language = _query_language(
         query.query,
         core.get_settings().current_language,
@@ -438,14 +414,6 @@ async def chosen_inline_result_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     chosen = update.chosen_inline_result
-    if not _is_allowed_user(update, context):
-        user = update.effective_user
-        logger.warning(
-            "Ignored chosen inline result from unregistered user_id=%s.",
-            user.id if user is not None else None,
-        )
-        return
-
     if not chosen.inline_message_id:
         logger.warning(
             "Inline feedback did not include an inline message ID; "
@@ -466,10 +434,6 @@ async def panel_page_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.callback_query
-    if not _is_allowed_user(update, context):
-        await _reject_unauthorized_callback(query)
-        return
-
     await query.answer()
     _prefix, language, page = query.data.split(":", 2)
     if language not in PANEL_PAGES or (
@@ -498,9 +462,6 @@ async def panel_toggle_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.callback_query
-    if not _is_allowed_user(update, context):
-        await _reject_unauthorized_callback(query)
-        return
 
     _prefix, language, setting_name = query.data.split(":", 2)
     if language not in PANEL_PAGES or setting_name not in {
@@ -551,10 +512,6 @@ async def close_inline_panel_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.callback_query
-    if not _is_allowed_user(update, context):
-        await _reject_unauthorized_callback(query)
-        return
-
     await query.answer()
 
     inline_message_id = query.inline_message_id
@@ -567,9 +524,8 @@ async def close_inline_panel_callback(
     )
 
 
-def build_inline_application(token, allowed_user_ids):
+def build_inline_application(token):
     application = Application.builder().token(token).build()
-    application.bot_data["allowed_user_ids"] = frozenset(allowed_user_ids)
     application.bot_data["panel_settings"] = {}
     application.add_handler(InlineQueryHandler(inline_query_handler))
     application.add_handler(
