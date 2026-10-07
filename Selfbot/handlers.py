@@ -205,17 +205,15 @@ async def handler(event):
         (
             command
             for command in core.COMMAND_ALIASES["photo_gif"]
-            if text == command or text.startswith(command + " ")
+            if text == command
         ),
         None,
     )
     if photo_gif_command is not None:
-        overlay_text = text[len(photo_gif_command):].strip()
         reply = await event.get_reply_message()
         error_message = await services.create_photo_gif(
             event,
             reply,
-            overlay_text,
         )
         if error_message:
             await core.edit_response(event, error_message)

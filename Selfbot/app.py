@@ -29,6 +29,28 @@ def _inline_polling_error_handler(updater, error):
     )
 
 
+def _inline_allowed_user_ids(current_user_id):
+    user_ids = {current_user_id}
+    configured_user_ids = os.getenv("BOT_ALLOWED_USER_IDS", "")
+    for value in configured_user_ids.split(","):
+        value = value.strip()
+        if not value:
+            continue
+        try:
+            user_id = int(value)
+        except ValueError as error:
+            raise RuntimeError(
+                "BOT_ALLOWED_USER_IDS must be a comma-separated list "
+                "of Telegram user IDs."
+            ) from error
+        if user_id <= 0:
+            raise RuntimeError(
+                "BOT_ALLOWED_USER_IDS must contain positive Telegram user IDs."
+            )
+        user_ids.add(user_id)
+    return user_ids
+
+
 async def main():
     from . import handlers, services
 
@@ -58,7 +80,13 @@ async def main():
     if token:
         from .inline_bot import build_inline_application
 
-        inline_application = build_inline_application(token)
+        account = await core.client.get_me()
+        if account is None or account.id is None:
+            raise RuntimeError("Could not determine the Selfbot account ID.")
+        inline_application = build_inline_application(
+            token,
+            _inline_allowed_user_ids(account.id),
+        )
     else:
         core.logger.warning(
             "BOT_TOKEN is not set; inline mode is disabled. "

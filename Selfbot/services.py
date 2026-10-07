@@ -9,9 +9,7 @@ import tempfile
 import time
 from pathlib import Path
 
-import arabic_reshaper
-from bidi.algorithm import get_display
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageOps
 from telethon.errors import RPCError
 from telethon.tl.functions.stories import GetStoriesByIDRequest
 from telethon.tl.types import Channel, Chat, User
@@ -23,7 +21,6 @@ _inline_help_bot_entity = None
 _inline_help_bot_client = None
 _inline_help_bot_username = None
 MAX_GIF_IMAGE_PIXELS = 40_000_000
-MAX_GIF_TEXT_LENGTH = 160
 MAX_GIF_DIMENSION = 720
 
 
@@ -123,48 +120,7 @@ def is_timed_message(message):
     )
 
 
-def _gif_font_path():
-    candidates = (
-        Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "tahoma.ttf",
-        Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "arial.ttf",
-        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-        Path("/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"),
-        Path("/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf"),
-        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
-    )
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    raise FileNotFoundError("No supported Arabic/Persian font was found.")
-
-
-def _shape_gif_line(text):
-    return get_display(arabic_reshaper.reshape(text))
-
-
-def _wrap_gif_text(draw, text, font, max_width):
-    lines = []
-    for paragraph in text.splitlines() or [text]:
-        words = paragraph.split()
-        if not words:
-            lines.append("")
-            continue
-        current = ""
-        for word in words:
-            candidate = f"{current} {word}".strip()
-            shaped_candidate = _shape_gif_line(candidate)
-            if current and draw.textlength(shaped_candidate, font=font) > max_width:
-                lines.append(_shape_gif_line(current))
-                current = word
-            else:
-                current = candidate
-        if current:
-            lines.append(_shape_gif_line(current))
-    return lines
-
-
-def _render_photo_gif(image_path, output_path, text):
-    font_path = _gif_font_path()
+def _render_photo_gif(image_path, output_path):
     with Image.open(image_path) as source:
         if source.width * source.height > MAX_GIF_IMAGE_PIXELS:
             raise ValueError("Image resolution is too large.")
@@ -174,102 +130,15 @@ def _render_photo_gif(image_path, output_path, text):
         (MAX_GIF_DIMENSION, MAX_GIF_DIMENSION),
         Image.Resampling.LANCZOS,
     )
-    width, height = image.size
-    max_text_width = width - 40
-    draw_context = ImageDraw.Draw(image)
-    font = None
-    lines = None
-    spacing = 5
-
-    for font_size in range(42, 17, -2):
-        candidate_font = ImageFont.truetype(font_path, font_size)
-        candidate_lines = _wrap_gif_text(
-            draw_context,
-            text,
-            candidate_font,
-            max_text_width,
-        )
-        line_height = draw_context.textbbox(
-            (0, 0), "آب", font=candidate_font
-        )[3]
-        if (
-            len(candidate_lines) <= 6
-            and (line_height + spacing) * len(candidate_lines) <= height * 0.36
-        ):
-            font = candidate_font
-            lines = candidate_lines
-            break
-
-    if font is None or lines is None:
-        raise ValueError("Text does not fit on the image.")
-
-    line_height = draw_context.textbbox((0, 0), "آب", font=font)[3]
-    padding = max(10, width // 36)
-    text_height = line_height * len(lines) + spacing * (len(lines) - 1)
-    overlay_height = text_height + padding * 2
-    overlay_top = height - overlay_height - padding
-    frames = []
-
-    for frame_index in range(8):
-        scale = 1 + (1 - math.cos(frame_index * math.tau / 8)) * 0.04
-        scaled_size = (round(width * scale), round(height * scale))
-        frame = image.resize(scaled_size, Image.Resampling.LANCZOS)
-        left = (frame.width - width) // 2
-        top = (frame.height - height) // 2
-        frame = frame.crop((left, top, left + width, top + height)).convert("RGBA")
-
-        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        overlay_draw = ImageDraw.Draw(overlay)
-        overlay_draw.rounded_rectangle(
-            (
-                padding // 2,
-                overlay_top,
-                width - padding // 2,
-                height - padding // 2,
-            ),
-            radius=max(8, padding // 2),
-            fill=(0, 0, 0, 165),
-        )
-        overlay_draw.multiline_text(
-            (width / 2, overlay_top + padding),
-            "\n".join(lines),
-            font=font,
-            fill="white",
-            anchor="mt",
-            align="center",
-            spacing=spacing,
-            stroke_width=1,
-            stroke_fill="black",
-        )
-        frame.alpha_composite(overlay)
-        frames.append(frame.convert("P", palette=Image.Palette.ADAPTIVE))
-
-    frames[0].save(
+    image.convert("P", palette=Image.Palette.ADAPTIVE).save(
         output_path,
         format="GIF",
-        save_all=True,
-        append_images=frames[1:],
-        duration=100,
-        loop=0,
-        disposal=2,
         optimize=True,
     )
 
 
-async def create_photo_gif(event, photo_message, text):
+async def create_photo_gif(event, photo_message):
     language = core.get_settings().current_language
-    if not text.strip():
-        return (
-            "متن دلخواه را بعد از دستور بنویس؛ مثال: .گیف متن من"
-            if language == "fa"
-            else "اكتب النص بعد الأمر؛ مثال: .تحويل جيف نصي"
-        )
-    if len(text) > MAX_GIF_TEXT_LENGTH:
-        return (
-            f"متن حداکثر می‌تواند {MAX_GIF_TEXT_LENGTH} نویسه باشد."
-            if language == "fa"
-            else f"يجب ألا يتجاوز النص {MAX_GIF_TEXT_LENGTH} حرفًا."
-        )
 
     media = getattr(photo_message, "media", None)
     document = getattr(media, "document", None)
@@ -278,9 +147,9 @@ async def create_photo_gif(event, photo_message, text):
         "image/"
     ):
         return (
-            "روی یک عکس ریپلای کن و دستور را همراه متن بفرست."
+            "روی یک عکس ریپلای کن و دستور .گیف را بفرست."
             if language == "fa"
-            else "قم بالرد على صورة وأرسل الأمر مع النص."
+            else "قم بالرد على صورة وأرسل الأمر .تحويل جيف."
         )
 
     await core.edit_response(
@@ -302,13 +171,12 @@ async def create_photo_gif(event, photo_message, text):
                     else "تعذّر تنزيل الصورة؛ حاول مرة أخرى."
                 )
 
-            output_path = os.path.join(folder, "captioned.gif")
+            output_path = os.path.join(folder, "photo.gif")
             try:
                 await asyncio.to_thread(
                     _render_photo_gif,
                     image_path,
                     output_path,
-                    text.strip(),
                 )
             except (
                 OSError,
@@ -321,9 +189,9 @@ async def create_photo_gif(event, photo_message, text):
                     exc_info=True,
                 )
                 return (
-                    "ساخت GIF انجام نشد؛ عکس معتبر و متن کوتاه‌تری را امتحان کن."
+                    "ساخت GIF انجام نشد؛ عکس معتبر و کوچک‌تری را امتحان کن."
                     if language == "fa"
-                    else "تعذّر إنشاء GIF؛ جرّب صورة صالحة ونصًا أقصر."
+                    else "تعذّر إنشاء GIF؛ جرّب صورة صالحة وأصغر حجمًا."
                 )
 
             await core.run_with_floodwait(
@@ -548,10 +416,12 @@ async def send_inline_help_panel(event, command):
     if not results:
         message = (
             "ربات اینلاین نتیجه‌ای نداد؛ BOT_USERNAME را بررسی کن و مطمئن شو "
-            "Inline Mode فعال است و ربات کمکی روی سرور مرکزی اجرا می‌شود."
+            "Inline Mode فعال است و شناسهٔ این اکانت در "
+            "BOT_ALLOWED_USER_IDS سرور مرکزی مجاز شده است."
             if core.get_settings().current_language != "ar"
             else "لم يُرجع بوت Inline أي نتيجة؛ تحقق من BOT_USERNAME وتأكد من "
-            "تفعيل Inline Mode وتشغيل البوت المساعد على الخادم المركزي."
+            "تفعيل Inline Mode وإضافة معرّف هذا الحساب إلى "
+            "BOT_ALLOWED_USER_IDS في الخادم المركزي."
         )
         await core.edit_response(event, message)
         return

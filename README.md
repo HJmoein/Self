@@ -27,7 +27,12 @@ Inline mode:
 - When using two Selfbot accounts on separate servers, run inline polling on
   only one server: set `BOT_TOKEN` there. Leave `BOT_TOKEN` empty on the other
   server, but keep the same `BOT_USERNAME`; it can still query the central
-  inline bot. No account ID allowlist is needed.
+  inline bot.
+- The polling server automatically allows its logged-in Selfbot account. Add
+  the numeric Telegram IDs of other installed Selfbot accounts to
+  `BOT_ALLOWED_USER_IDS=id1,id2` in the central server's `.env`. These are
+  allowed installations, not owner privileges. Other Telegram users cannot
+  open the panel or use its buttons. Restart the central Selfbot after changes.
 - Use a separate `SESSION_NAME` for each Telegram account. Settings files are
   stored with their sessions and must not be copied between accounts. Each Selfbot
   client only processes commands sent by its own logged-in account, and
@@ -64,9 +69,9 @@ Weather commands:
 Only commands in the selected language are handled. Use the language command
 to switch languages.
 
-Photo GIF command (in the Tools section):
+Photo-to-GIF command (in the Tools section):
 
-- Persian: reply to a photo and send `.گیف متن دلخواه`.
-- Arabic: reply to a photo and send `.تحويل جيف النص`.
-- The text is rendered on a looping GIF. The output is resized to fit a
-  720-pixel maximum dimension; text is limited to 160 characters.
+- Persian: reply to a photo and send `.گیف`.
+- Arabic: reply to a photo and send `.تحويل جيف`.
+- The photo is converted to a static GIF without adding artificial zoom or
+  overlay text. The output is resized to fit a 720-pixel maximum dimension.
