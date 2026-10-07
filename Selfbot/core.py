@@ -71,7 +71,14 @@ def get_settings():
 
 
 def settings_path_for(session_name):
-    return SETTINGS_PATH
+    session_path = Path(session_name)
+    if session_path == Path("self"):
+        return SETTINGS_PATH
+    if session_path.suffix == ".session":
+        session_path = session_path.with_suffix("")
+    return session_path.with_name(
+        f".{session_path.name}.selfbot_settings.json"
+    )
 
 
 def load_settings(settings, path=None):
@@ -187,7 +194,7 @@ def save_settings(path=None):
             temporary_path.unlink()
 
 
-_settings = AccountSettings(session_name=Path(SESSION_NAME).stem)
+_settings = AccountSettings(session_name=SESSION_NAME)
 load_settings(_settings)
 
 ENEMY_INSULTS = [

@@ -547,9 +547,11 @@ async def send_inline_help_panel(event, command):
     )
     if not results:
         message = (
-            "ربات اینلاین نتیجه‌ای نداد؛ فعال‌بودن Inline Mode و BOT_TOKEN را بررسی کن."
+            "ربات اینلاین نتیجه‌ای نداد؛ BOT_USERNAME را بررسی کن و مطمئن شو "
+            "Inline Mode فعال است و ربات کمکی روی سرور مرکزی اجرا می‌شود."
             if core.get_settings().current_language != "ar"
-            else "لم يُرجع بوت Inline أي نتيجة؛ تحقق من تفعيل Inline Mode و BOT_TOKEN."
+            else "لم يُرجع بوت Inline أي نتيجة؛ تحقق من BOT_USERNAME وتأكد من "
+            "تفعيل Inline Mode وتشغيل البوت المساعد على الخادم المركزي."
         )
         await core.edit_response(event, message)
         return

@@ -37,7 +37,7 @@ PANEL_SETTING_NAMES = (
 _close_tasks = {}
 
 
-def _query_owner_settings(query_text):
+def _query_user_settings(query_text):
     parts = query_text.split()
     if len(parts) < 2 or not parts[1].startswith(PANEL_SETTINGS_QUERY_PREFIX):
         return None
@@ -318,16 +318,10 @@ def _query_language(query_text, default_language):
     return default_language
 
 
-def _is_panel_owner(update, context):
-    owner_ids = context.application.bot_data.get("owner_ids", set())
-    user = update.effective_user
-    return user is not None and user.id in owner_ids
-
-
-def _panel_settings_for(context, owner_id):
-    settings_by_owner = context.application.bot_data["panel_settings"]
-    return settings_by_owner.setdefault(
-        owner_id,
+def _panel_settings_for(context, user_id):
+    settings_by_user = context.application.bot_data["panel_settings"]
+    return settings_by_user.setdefault(
+        user_id,
         {name: False for name in PANEL_SETTING_NAMES},
     )
 
@@ -336,10 +330,6 @@ async def inline_query_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.inline_query
-    if not _is_panel_owner(update, context):
-        await query.answer([], cache_time=0, is_personal=True)
-        return
-
     language = _query_language(
         query.query,
         core.get_settings().current_language,
@@ -348,12 +338,12 @@ async def inline_query_handler(
         await query.answer([], cache_time=0, is_personal=True)
         return
 
-    owner_id = update.effective_user.id
-    settings_by_owner = context.application.bot_data["panel_settings"]
-    query_settings = _query_owner_settings(query.query)
+    user_id = update.effective_user.id
+    settings_by_user = context.application.bot_data["panel_settings"]
+    query_settings = _query_user_settings(query.query)
     if query_settings is not None:
-        settings_by_owner[owner_id] = query_settings
-    owner_settings = _panel_settings_for(context, owner_id)
+        settings_by_user[user_id] = query_settings
+    user_settings = _panel_settings_for(context, user_id)
     panel = InlineQueryResultArticle(
         id=f"localized-panel:{language}",
         title="مساعدة" if language == "ar" else "راهنما",
@@ -368,7 +358,7 @@ async def inline_query_handler(
         ),
         reply_markup=_page_markup(
             language,
-            owner_settings=owner_settings,
+            owner_settings=user_settings,
         ),
     )
     await query.answer([panel], cache_time=0, is_personal=True)
@@ -424,9 +414,6 @@ async def chosen_inline_result_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     chosen = update.chosen_inline_result
-    if not _is_panel_owner(update, context):
-        return
-
     if not chosen.inline_message_id:
         logger.warning(
             "Inline feedback did not include an inline message ID; "
@@ -447,15 +434,6 @@ async def panel_page_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.callback_query
-    if not _is_panel_owner(update, context):
-        await query.answer(
-            "هذه اللوحة خاصة بمالكها."
-            if core.get_settings().current_language == "ar"
-            else "این پنل فقط برای صاحب ربات است.",
-            show_alert=True,
-        )
-        return
-
     await query.answer()
     _prefix, language, page = query.data.split(":", 2)
     if language not in PANEL_PAGES or (
@@ -484,14 +462,6 @@ async def panel_toggle_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.callback_query
-    if not _is_panel_owner(update, context):
-        await query.answer(
-            "هذه اللوحة خاصة بمالكها."
-            if core.get_settings().current_language == "ar"
-            else "این پنل فقط برای صاحب ربات است.",
-            show_alert=True,
-        )
-        return
 
     _prefix, language, setting_name = query.data.split(":", 2)
     if language not in PANEL_PAGES or setting_name not in {
@@ -502,13 +472,12 @@ async def panel_toggle_callback(
         await query.answer()
         return
 
-    owner_id = query.from_user.id
-    settings_by_owner = context.application.bot_data["panel_settings"]
-    owner_settings = _panel_settings_for(context, owner_id)
-    enabled = not owner_settings[setting_name]
+    user_id = query.from_user.id
+    user_settings = _panel_settings_for(context, user_id)
+    enabled = not user_settings[setting_name]
     try:
         await context.bot.send_message(
-            chat_id=owner_id,
+            chat_id=user_id,
             text=(
                 f"{PANEL_CONTROL_MESSAGE_PREFIX}"
                 f"{setting_name}:{int(enabled)}"
@@ -516,8 +485,8 @@ async def panel_toggle_callback(
         )
     except TelegramError as error:
         logger.warning(
-            "Could not send inline panel setting to owner_id=%s: %s",
-            owner_id,
+            "Could not send inline panel setting to user_id=%s: %s",
+            user_id,
             type(error).__name__,
         )
         await query.answer(
@@ -528,13 +497,13 @@ async def panel_toggle_callback(
         )
         return
 
-    owner_settings[setting_name] = enabled
+    user_settings[setting_name] = enabled
     await query.answer()
     await query.edit_message_reply_markup(
         reply_markup=_page_markup(
             language,
             "guardian",
-            owner_settings,
+            user_settings,
         )
     )
 
@@ -543,15 +512,6 @@ async def close_inline_panel_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.callback_query
-    if not _is_panel_owner(update, context):
-        await query.answer(
-            "هذه اللوحة خاصة بمالكها."
-            if core.get_settings().current_language == "ar"
-            else "این پنل فقط برای صاحب ربات است.",
-            show_alert=True,
-        )
-        return
-
     await query.answer()
 
     inline_message_id = query.inline_message_id
@@ -564,11 +524,8 @@ async def close_inline_panel_callback(
     )
 
 
-def build_inline_application(token, owner_ids):
+def build_inline_application(token):
     application = Application.builder().token(token).build()
-    if isinstance(owner_ids, int):
-        owner_ids = {owner_ids}
-    application.bot_data["owner_ids"] = frozenset(owner_ids)
     application.bot_data["panel_settings"] = {}
     application.add_handler(InlineQueryHandler(inline_query_handler))
     application.add_handler(

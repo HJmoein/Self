@@ -29,27 +29,6 @@ def _inline_polling_error_handler(updater, error):
     )
 
 
-def _inline_owner_ids(current_owner_id):
-    owner_ids = {current_owner_id}
-    configured_owner_ids = os.getenv("BOT_OWNER_IDS", "")
-    for value in configured_owner_ids.split(","):
-        value = value.strip()
-        if not value:
-            continue
-        try:
-            owner_id = int(value)
-        except ValueError as error:
-            raise RuntimeError(
-                "BOT_OWNER_IDS must be a comma-separated list of Telegram user IDs."
-            ) from error
-        if owner_id <= 0:
-            raise RuntimeError(
-                "BOT_OWNER_IDS must contain positive Telegram user IDs."
-            )
-        owner_ids.add(owner_id)
-    return owner_ids
-
-
 async def main():
     from . import handlers, services
 
@@ -79,13 +58,7 @@ async def main():
     if token:
         from .inline_bot import build_inline_application
 
-        owner = await core.client.get_me()
-        if owner is None or owner.id is None:
-            raise RuntimeError("Could not determine the Selfbot owner account ID.")
-        inline_application = build_inline_application(
-            token,
-            _inline_owner_ids(owner.id),
-        )
+        inline_application = build_inline_application(token)
     else:
         core.logger.warning(
             "BOT_TOKEN is not set; inline mode is disabled. "

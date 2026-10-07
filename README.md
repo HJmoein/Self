@@ -1,14 +1,25 @@
 # Self
 
-Run the Selfbot from the project directory:
+Run the default Selfbot session from the project directory:
 
 ```powershell
 python Bot.py
 ```
 
-The bot uses the single Telegram session configured by `SESSION_NAME` in
-`.env`. Settings such as the selected language and enabled features are saved in
-`.selfbot_settings.json` and restored after restarting the bot.
+The bot uses the Telegram session configured by `SESSION_NAME` in `.env`.
+For an additional account on this server, run `python install_account.py`.
+Choose a unique account label; the program starts that account's Selfbot in the
+same terminal, where Telethon prompts for the phone and login code. Never send
+the code to a Telegram bot or paste it into chat. Each account uses its own
+session file and settings file under `accounts/`. To restart an account, run
+`python install_account.py` again and enter the same label.
+
+Settings such as the selected language and enabled features are saved separately
+for each session and restored after restarting the bot (`.selfbot_settings.json`
+for the default `self` session; named sessions store settings beside their
+session files). Each account has its own process and session; running many
+accounts simultaneously is limited by the server's CPU, memory, and Telegram
+limits.
 
 Inline mode:
 
@@ -16,19 +27,18 @@ Inline mode:
 - Set `BOT_USERNAME=Moein_Helperbot` in `.env` to the inline bot username
   (without the `@`).
 - When using two Selfbot accounts on separate servers, run inline polling on
-  only one server: set `BOT_TOKEN` there and list both Telegram account IDs in
-  `BOT_OWNER_IDS=id1,id2`. Leave `BOT_TOKEN` empty on the other server, but
-  keep the same `BOT_USERNAME`; it can still query the central inline bot.
-- Use a separate `SESSION_NAME` and that server's own `.selfbot_settings.json`
-  for each Telegram account; do not copy one account's settings file to the
-  other server. Each Selfbot client only processes commands sent by its own
-  logged-in account. The help command
+  only one server: set `BOT_TOKEN` there. Leave `BOT_TOKEN` empty on the other
+  server, but keep the same `BOT_USERNAME`; it can still query the central
+  inline bot. No account ID allowlist is needed.
+- Use a separate `SESSION_NAME` for each Telegram account. Settings files are
+  stored with their sessions and must not be copied between accounts. Each Selfbot
+  client only processes commands sent by its own logged-in account, and
+  settings stay separate. The help command
   selects that account's panel language (`.راهنما`/`.دستورات` for Persian,
   `.مساعدة`/`.الأوامر` for Arabic).
-- Add `BOT_OWNER_IDS=id1,id2` on the server running the inline bot, using both
-  Telegram user IDs. Start the inline bot in a private chat from each account
-  once; guardian-button updates are sent privately to the account that pressed
-  the button, applied only by its Selfbot, and deleted after processing.
+- Start the inline bot in a private chat from each account once;
+  guardian-button updates are sent privately to the account that pressed the
+  button, applied only by its Selfbot, and deleted after processing.
 - Enable inline feedback for the bot with BotFather (`/setinlinefeedback`) so
   Telegram returns the selected inline message ID to the bot.
 - Run `python Bot.py`, then send `.راهنما` or `.مساعدة` in any chat. The Selfbot
@@ -37,9 +47,9 @@ Inline mode:
   current Selfbot language is used for other help aliases. The home panel
   closes after five seconds if left untouched. Choosing a section cancels the
   timer so the command pages remain open while navigating.
-- Only Telegram accounts listed in `BOT_OWNER_IDS` can open or use the inline
-  panel. Guardian settings are read from and saved by that account's own
-  Selfbot; the inline bot keeps no separate settings file.
+- Any account can query the inline help bot. Guardian changes are sent to the
+  account that clicked and saved by that account's own Selfbot; account
+  settings are not shared.
 - Commands are displayed in monospace formatting so they are easy to select
   and copy from the message.
 - The storage section is labeled "نگهبان چت" / "حارس الدردشة". Its inline
