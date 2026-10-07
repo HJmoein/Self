@@ -7,12 +7,10 @@ python Bot.py
 ```
 
 The bot uses the Telegram session configured by `SESSION_NAME` in `.env`.
-For an additional account on this server, run `python install_account.py`.
-Choose a unique account label; the program starts that account's Selfbot in the
-same terminal, where Telethon prompts for the phone and login code. Never send
-the code to a Telegram bot or paste it into chat. Each account uses its own
-session file and settings file under `accounts/`. To restart an account, run
-`python install_account.py` again and enter the same label.
+To run this Selfbot on another account, use the same project and run
+`python Bot.py` with a different `SESSION_NAME`. Telethon will request that
+account's phone and login code in the terminal. Never send the code to a
+Telegram bot or paste it into chat.
 
 Settings such as the selected language and enabled features are saved separately
 for each session and restored after restarting the bot (`.selfbot_settings.json`
