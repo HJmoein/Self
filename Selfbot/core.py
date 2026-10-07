@@ -54,6 +54,7 @@ class AccountSettings:
     self_enabled: bool = True
     timed_save_enabled: bool = False
     deleted_save_enabled: bool = False
+    edited_save_enabled: bool = False
     meow_chats: set = field(default_factory=set)
     enemy_targets: dict = field(default_factory=lambda: defaultdict(set))
     enemy_counters: dict = field(default_factory=lambda: defaultdict(int))
@@ -101,6 +102,7 @@ def load_settings(settings, path=None):
         "self_enabled": saved_values.get("self_enabled", True),
         "timed_save_enabled": saved_values.get("timed_save_enabled", False),
         "deleted_save_enabled": saved_values.get("deleted_save_enabled", False),
+        "edited_save_enabled": saved_values.get("edited_save_enabled", False),
     }
     if not isinstance(language, str) or language not in {"fa", "ar"} or any(
         not isinstance(value, bool) for value in boolean_settings.values()
@@ -138,6 +140,7 @@ def load_settings(settings, path=None):
     settings.self_enabled = boolean_settings["self_enabled"]
     settings.timed_save_enabled = boolean_settings["timed_save_enabled"]
     settings.deleted_save_enabled = boolean_settings["deleted_save_enabled"]
+    settings.edited_save_enabled = boolean_settings["edited_save_enabled"]
     settings.meow_chats.clear()
     settings.meow_chats.update(raw_meow_chats)
     settings.enemy_targets.clear()
@@ -154,6 +157,7 @@ def save_settings(path=None):
         "self_enabled": get_settings().self_enabled,
         "timed_save_enabled": get_settings().timed_save_enabled,
         "deleted_save_enabled": get_settings().deleted_save_enabled,
+        "edited_save_enabled": get_settings().edited_save_enabled,
         "meow_chats": sorted(get_settings().meow_chats),
         "enemy_targets": {
             str(chat_id): sorted(target_ids)
@@ -234,6 +238,18 @@ COMMAND_ALIASES = {
         "حفظ تلقائي المحذوفات إيقاف",
         "حفظ تلقائي للمحذوفات إيقاف",
     ),
+    "edited_on": (
+        "سیو خودکار ویرایش روشن",
+        "سیو خودکار پیام ویرایش شده روشن",
+        "ذخیره خودکار ویرایش روشن",
+        "حفظ تلقائي التعديلات تشغيل",
+    ),
+    "edited_off": (
+        "سیو خودکار ویرایش خاموش",
+        "سیو خودکار پیام ویرایش شده خاموش",
+        "ذخیره خودکار ویرایش خاموش",
+        "حفظ تلقائي التعديلات إيقاف",
+    ),
     "timed_on": (
         "سیو خودکار روشن",
         "سیو خودکار تایم دار روشن",
@@ -265,6 +281,8 @@ PERSIAN_COMMAND_ALIASES = frozenset(
         *COMMAND_ALIASES["enemy_off"][:1],
         *COMMAND_ALIASES["deleted_on"][:3],
         *COMMAND_ALIASES["deleted_off"][:3],
+        *COMMAND_ALIASES["edited_on"][:3],
+        *COMMAND_ALIASES["edited_off"][:3],
         *COMMAND_ALIASES["timed_on"][:2],
         *COMMAND_ALIASES["timed_off"][:2],
         *PERSIAN_HELP_COMMANDS,
@@ -298,6 +316,8 @@ ARABIC_COMMAND_ALIASES = frozenset(
         *COMMAND_ALIASES["enemy_off"][1:],
         *COMMAND_ALIASES["deleted_on"][3:],
         *COMMAND_ALIASES["deleted_off"][3:],
+        *COMMAND_ALIASES["edited_on"][3:],
+        *COMMAND_ALIASES["edited_off"][3:],
         *COMMAND_ALIASES["timed_on"][2:],
         *COMMAND_ALIASES["timed_off"][2:],
         *ARABIC_HELP_COMMANDS,
@@ -378,6 +398,14 @@ def localized_text(text):
         ("پیام زمان‌دار ذخیره شد ✅", "تم حفظ الرسالة المؤقتة ✅"),
         ("پیام حذف‌شده", "رسالة محذوفة"),
         ("فرستنده:", "المرسل:"),
+        ("پیام ویرایش شد", "تم تعديل الرسالة"),
+        ("آیدی پیام:", "معرّف الرسالة:"),
+        ("زمان ویرایش:", "وقت التعديل:"),
+        ("متن قبلی:", "النص السابق:"),
+        ("متن جدید:", "النص الجديد:"),
+        ("[متن قبلی در دسترس نیست]", "[النص السابق غير متاح]"),
+        ("پیش‌نمایش این مدیا در HTML درج نشد؛ فایل جداگانه ذخیره شده است.", "لم يتم تضمين معاينة الوسائط في ملف HTML؛ تم حفظ الملف بشكل منفصل."),
+        ("پیش‌نمایش عکس", "معاينة الصورة"),
         ("پیام‌های حذف‌شده", "الرسائل المحذوفة"),
         ("پیام بدون متن", "رسالة بلا نص"),
         ("پیام دارای مدیا", "رسالة تحتوي على وسائط"),
@@ -392,6 +420,10 @@ def localized_text(text):
         ("پینگ :", "زمن الاستجابة:"),
         ("ذخیره پیام‌های حذف‌شده روشن شد", "تم تشغيل حفظ الرسائل المحذوفة"),
         ("ذخیره پیام‌های حذف‌شده خاموش شد", "تم إيقاف حفظ الرسائل المحذوفة"),
+        ("گزارش پیام‌های ویرایش‌شده روشن شد ✅", "تم تشغيل تقارير الرسائل المعدّلة ✅"),
+        ("گزارش پیام‌های ویرایش‌شده خاموش شد", "تم إيقاف تقارير الرسائل المعدّلة"),
+        ("گزارش پیام‌های ویرایش‌شده از قبل روشن است.", "تقارير الرسائل المعدّلة مفعّلة بالفعل."),
+        ("گزارش پیام‌های ویرایش‌شده روشن نیست", "تقارير الرسائل المعدّلة غير مفعّلة"),
         ("ذخیره پیام‌های زمان‌دار از قبل روشن است", "حفظ الرسائل المؤقتة مفعّل بالفعل"),
         ("ذخیره پیام‌های زمان‌دار روشن شد", "تم تشغيل حفظ الرسائل المؤقتة"),
         ("ذخیره پیام‌های زمان‌دار روشن نیست", "حفظ الرسائل المؤقتة غير مفعّل"),

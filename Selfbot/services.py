@@ -1,6 +1,7 @@
 """Telegram feature services: archival, media retrieval, and heart animation."""
 
 import asyncio
+import base64
 import html
 import os
 import tempfile
@@ -28,6 +29,7 @@ def message_snapshot(message, sender=None):
         "sender_username": sender_username,
         "text": message.message or "",
         "has_media": bool(message.media),
+        "media": message.media,
         "message": message,
     }
 
@@ -43,7 +45,26 @@ def is_timed_message(message):
     )
 
 
-async def save_timed_message(message):
+def timed_message_caption(message, sender=None):
+    sender_info = message_snapshot(message, sender)
+    caption = (
+        f"{core.localized_text('پیام زمان‌دار ذخیره شد ✅')}\n"
+        f"{core.localized_text('فرستنده:')} {sender_info['sender_name']}"
+    )
+    if sender_info["sender_username"]:
+        caption += (
+            f"\n{core.localized_text('یوزرنیم:')} "
+            f"@{sender_info['sender_username']}"
+        )
+    if sender_info["sender_id"]:
+        caption += (
+            f"\n{core.localized_text('آیدی عددی:')} "
+            f"{sender_info['sender_id']}"
+        )
+    return caption
+
+
+async def save_timed_message(message, sender=None):
     if not message.media:
         return
 
@@ -60,7 +81,7 @@ async def save_timed_message(message):
                 lambda: core.get_client().send_file(
                     "me",
                     file_path,
-                    caption=core.localized_text("پیام زمان‌دار ذخیره شد ✅"),
+                    caption=timed_message_caption(message, sender),
                 )
             )
     except Exception:
@@ -107,51 +128,245 @@ async def save_deleted_message(item):
         )
 
 
+def edited_message_report(previous, updated):
+    sender = updated["sender_name"]
+    if updated["sender_username"]:
+        sender += f" (@{updated['sender_username']})"
+    if updated["sender_id"]:
+        sender += f" | {core.localized_text('آیدی عددی:')} {updated['sender_id']}"
+
+    old_text = (
+        previous["text"]
+        if previous is not None and previous["text"]
+        else core.localized_text("[متن قبلی در دسترس نیست]")
+    )
+    new_text = updated["text"] or core.localized_text("[پیام بدون متن]")
+    message = updated["message"]
+    edited_at = getattr(message, "edit_date", None) or updated["date"]
+    date_text = edited_at.strftime("%Y-%m-%d %H:%M:%S") if edited_at else "نامشخص"
+    report = (
+        f"{core.localized_text('پیام ویرایش شد')}\n"
+        f"{core.localized_text('فرستنده:')} {sender}\n"
+        f"{core.localized_text('آیدی پیام:')} {updated['id']}\n"
+        f"{core.localized_text('زمان ویرایش:')} {date_text}\n\n"
+        f"{core.localized_text('متن قبلی:')}\n{old_text}\n\n"
+        f"{core.localized_text('متن جدید:')}\n{new_text}"
+    )
+    return report
+
+
+def edited_message_report_text(previous, updated, max_length):
+    report = edited_message_report(previous, updated)
+    if len(report) <= max_length:
+        return report
+
+    header_lines = report.split("\n\n", 1)[0]
+    old_text = (
+        previous["text"]
+        if previous is not None and previous["text"]
+        else core.localized_text("[متن قبلی در دسترس نیست]")
+    )
+    new_text = updated["text"] or core.localized_text("[پیام بدون متن]")
+    old_label = core.localized_text("متن قبلی:")
+    new_label = core.localized_text("متن جدید:")
+    prefix = f"{header_lines}\n\n{old_label}\n"
+    separator = f"\n\n{new_label}\n"
+    available = max_length - len(prefix) - len(separator)
+    old_limit = available // 2
+    new_limit = available - old_limit
+    old_excerpt = old_text[:old_limit]
+    new_excerpt = new_text[:new_limit]
+    if len(old_text) > old_limit:
+        old_excerpt = old_excerpt.rstrip() + "…"
+    if len(new_text) > new_limit:
+        new_excerpt = new_excerpt.rstrip() + "…"
+    return f"{prefix}{old_excerpt}{separator}{new_excerpt}"
+
+
+async def save_edited_message_report(previous, updated):
+    message = updated["message"]
+
+    if message.media:
+        report = edited_message_report_text(previous, updated, 1024)
+        await core.run_with_floodwait(
+            lambda: core.get_client().send_file(
+                "me",
+                message.media,
+                caption=report[:1024],
+            )
+        )
+    else:
+        report = edited_message_report_text(previous, updated, 4096)
+        await core.run_with_floodwait(
+            lambda: core.get_client().send_message("me", report[:4096])
+        )
+
+
+async def send_inline_help_panel(event, command):
+    bot_username = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
+    if not bot_username:
+        message = (
+            "نام کاربری ربات اینلاین را در BOT_USERNAME داخل فایل .env تنظیم کن."
+            if core.get_settings().current_language != "ar"
+            else "اضبط اسم مستخدم بوت Inline في BOT_USERNAME داخل ملف .env."
+        )
+        await core.edit_response(event, message)
+        return
+
+    results = await event.client.inline_query(
+        bot_username,
+        command,
+        entity=event.chat_id,
+    )
+    if not results:
+        message = (
+            "ربات اینلاین نتیجه‌ای نداد؛ فعال‌بودن Inline Mode و BOT_TOKEN را بررسی کن."
+            if core.get_settings().current_language != "ar"
+            else "لم يُرجع بوت Inline أي نتيجة؛ تحقق من تفعيل Inline Mode و BOT_TOKEN."
+        )
+        await core.edit_response(event, message)
+        return
+
+    await results[0].click(entity=event.chat_id)
+    await event.delete()
+
+
+async def deleted_media_preview(item, folder, index, remaining_size):
+    if not item["has_media"]:
+        return "", 0
+
+    message = item["message"]
+    media = getattr(message, "media", None)
+    document = getattr(media, "document", None)
+    photo = getattr(media, "photo", None)
+    mime_type = getattr(document, "mime_type", None)
+    unavailable_note = (
+        '<p class="media-note">'
+        f"{html.escape(core.localized_text('پیش‌نمایش این مدیا در HTML درج نشد؛ فایل جداگانه ذخیره شده است.'))}"
+        "</p>"
+    )
+    if photo is not None:
+        mime_type = "image/jpeg"
+
+    if mime_type not in {
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "video/mp4",
+    }:
+        return unavailable_note, 0
+
+    max_preview_size = min(10 * 1024 * 1024, remaining_size)
+    if max_preview_size <= 0:
+        return unavailable_note, 0
+
+    known_size = getattr(document, "size", None)
+    if photo is not None:
+        photo_sizes = getattr(photo, "sizes", ())
+        known_size = max(
+            (
+                getattr(size, "size", None)
+                or max(getattr(size, "sizes", ()), default=0)
+                for size in photo_sizes
+            ),
+            default=None,
+        )
+    if known_size is not None and known_size > max_preview_size:
+        return unavailable_note, 0
+
+    media_folder = os.path.join(folder, f"media_{item['id']}_{index}")
+    os.makedirs(media_folder)
+    try:
+        file_path = await core.run_with_floodwait(
+            lambda: core.get_client().download_media(message, file=media_folder)
+        )
+    except Exception as error:
+        core.logger.warning(
+            "Could not download media preview for deleted message_id=%s: %s",
+            item["id"],
+            type(error).__name__,
+            exc_info=True,
+        )
+        return unavailable_note, 0
+
+    if not file_path:
+        return unavailable_note, 0
+
+    with open(file_path, "rb") as media_file:
+        media_bytes = media_file.read(max_preview_size + 1)
+    if len(media_bytes) > max_preview_size:
+        return unavailable_note, 0
+
+    data_uri = (
+        f"data:{mime_type};base64,"
+        f"{base64.b64encode(media_bytes).decode('ascii')}"
+    )
+    if mime_type == "video/mp4":
+        return (
+            '<video controls preload="metadata" class="media-preview">'
+            f'<source src="{data_uri}" type="video/mp4"></video>',
+            len(media_bytes),
+        )
+    return (
+        f'<img class="media-preview" src="{data_uri}" '
+        f'alt="{html.escape(core.localized_text("پیش‌نمایش عکس"))}">',
+        len(media_bytes),
+    )
+
+
 async def send_deleted_messages_report(chat_id):
-    messages = core.get_settings().deleted_messages[chat_id]
+    settings = core.get_settings()
+    messages = list(settings.deleted_messages[chat_id])
 
     if len(messages) <= 10:
         return
 
-    core.get_settings().deleted_messages[chat_id] = []
+    messages.sort(key=lambda item: item.get("id") or 0)
     rows = []
+    remaining_preview_size = 25 * 1024 * 1024
 
-    for item in messages:
-        date_text = item["date"].strftime("%Y-%m-%d %H:%M:%S") if item["date"] else "نامشخص"
-        content = item["text"] or core.localized_text("[پیام بدون متن]")
-        if item["has_media"]:
-            content += f"\n{core.localized_text('[پیام دارای مدیا]')}"
+    with tempfile.TemporaryDirectory(prefix="deleted_messages_") as folder:
+        for index, item in enumerate(messages):
+            date_text = item["date"].strftime("%Y-%m-%d %H:%M:%S") if item["date"] else "نامشخص"
+            content = item["text"] or core.localized_text("[پیام بدون متن]")
+            if item["has_media"]:
+                content += f"\n{core.localized_text('[پیام دارای مدیا]')}"
+            media_preview, preview_size = await deleted_media_preview(
+                item, folder, index, remaining_preview_size
+            )
+            remaining_preview_size -= preview_size
 
-        rows.append(
-            "<article>"
-            f"<h3>پیام {item['id']}</h3>"
-            f"<p class=\"meta\">{html.escape(core.localized_text('فرستنده:'))} "
-            f"{html.escape(deleted_message_caption(item))} | "
-            f"{html.escape(core.localized_text('زمان:'))} {html.escape(date_text)}</p>"
-            f"<pre>{html.escape(content)}</pre>"
-            "</article>"
+            rows.append(
+                "<article>"
+                f"<h3>پیام {item['id']}</h3>"
+                f"<p class=\"meta\">{html.escape(core.localized_text('فرستنده:'))} "
+                f"{html.escape(deleted_message_caption(item))} | "
+                f"{html.escape(core.localized_text('زمان:'))} {html.escape(date_text)}</p>"
+                f"<pre>{html.escape(content)}</pre>"
+                f"{media_preview}"
+                "</article>"
+            )
+
+        report = (
+            f"<!doctype html><html lang=\"{'ar' if settings.current_language == 'ar' else 'fa'}\" dir=\"rtl\"><head>"
+            f"<meta charset=\"utf-8\"><title>{core.localized_text('پیام‌های حذف‌شده')}</title>"
+            "<style>body{font-family:Tahoma,sans-serif;max-width:900px;margin:32px auto;"
+            "padding:0 16px;background:#f4f6f8;color:#17202a}article{background:#fff;"
+            "border:1px solid #d9e0e7;border-radius:8px;padding:16px;margin:12px 0}"
+            "h3{margin:0 0 8px}.meta{color:#637381;font-size:13px}pre{white-space:pre-wrap;"
+            "font:inherit;line-height:1.8}.media-preview{display:block;max-width:100%;"
+            "max-height:600px;margin:12px auto;border-radius:6px}"
+            ".media-note{color:#637381;font-size:13px}</style></head><body>"
+            f"<h1>{core.localized_text('پیام‌های حذف‌شده')} ({len(messages)})</h1>"
+            + "".join(rows)
+            + "</body></html>"
         )
 
-    report = (
-        f"<!doctype html><html lang=\"{'ar' if core.get_settings().current_language == 'ar' else 'fa'}\" dir=\"rtl\"><head>"
-        f"<meta charset=\"utf-8\"><title>{core.localized_text('پیام‌های حذف‌شده')}</title>"
-        "<style>body{font-family:Tahoma,sans-serif;max-width:900px;margin:32px auto;"
-        "padding:0 16px;background:#f4f6f8;color:#17202a}article{background:#fff;"
-        "border:1px solid #d9e0e7;border-radius:8px;padding:16px;margin:12px 0}"
-        "h3{margin:0 0 8px}.meta{color:#637381;font-size:13px}pre{white-space:pre-wrap;"
-        "font:inherit;line-height:1.8}</style></head><body>"
-        f"<h1>{core.localized_text('پیام‌های حذف‌شده')} ({len(messages)})</h1>"
-        + "".join(rows)
-        + "</body></html>"
-    )
+        report_path = os.path.join(folder, "deleted_messages.html")
+        with open(report_path, "w", encoding="utf-8") as report_file:
+            report_file.write(report)
 
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", suffix=".html", prefix="deleted_messages_", delete=False
-    ) as report_file:
-        report_file.write(report)
-        report_path = report_file.name
-
-    try:
         await core.run_with_floodwait(
             lambda: core.get_client().send_file(
                 "me",
@@ -159,12 +374,13 @@ async def send_deleted_messages_report(chat_id):
                 caption=core.localized_text(f"گزارش {len(messages)} پیام حذف‌شده ✅"),
             )
         )
-    finally:
-        try:
-            import os
-            os.remove(report_path)
-        except OSError:
-            pass
+
+    reported = {id(item) for item in messages}
+    settings.deleted_messages[chat_id] = [
+        item
+        for item in settings.deleted_messages[chat_id]
+        if id(item) not in reported
+    ]
 
 
 async def meow_loop(chat_id):

@@ -1,1 +1,2 @@
 Telethon>=1.45,<2
+python-telegram-bot>=22,<23

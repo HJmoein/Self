@@ -24,8 +24,58 @@ async def cache_messages(event):
         )
         settings.message_index[event.message.id].add(event.chat_id)
 
-        if core.get_settings().timed_save_enabled and services.is_timed_message(event.message):
-            asyncio.create_task(services.save_timed_message(event.message))
+        if (
+            not event.out
+            and core.get_settings().timed_save_enabled
+            and services.is_timed_message(event.message)
+        ):
+            asyncio.create_task(
+                services.save_timed_message(event.message, sender)
+            )
+
+
+async def edited_message_handler(event):
+    settings = core.get_settings()
+    if (
+        not settings.edited_save_enabled
+        or not event.is_private
+        or event.chat_id is None
+        or event.message is None
+        or event.out
+    ):
+        return
+
+    cached_messages = settings.message_cache[event.chat_id]
+    cached_index = next(
+        (
+            index
+            for index, item in enumerate(cached_messages)
+            if item["id"] == event.message.id
+        ),
+        None,
+    )
+    previous = cached_messages[cached_index] if cached_index is not None else None
+
+    sender = getattr(event.message, "sender", None)
+    if sender is None and event.message.sender_id is not None:
+        try:
+            sender = await event.get_sender()
+        except Exception:
+            sender = None
+
+    updated = services.message_snapshot(event.message, sender)
+    if (
+        previous is not None
+        and previous["text"] == updated["text"]
+        and previous.get("media") == updated["media"]
+    ):
+        return
+
+    await services.save_edited_message_report(previous, updated)
+    if cached_index is None:
+        cached_messages.append(updated)
+    else:
+        cached_messages[cached_index] = updated
 
 
 async def enemy_auto_reply_handler(event):
@@ -80,11 +130,11 @@ async def deleted_message_handler(event):
 
         settings.deleted_messages[chat_id].extend(removed)
 
-        for item in removed:
-            await services.save_deleted_message(item)
-
         if len(settings.deleted_messages[chat_id]) > 10:
             await services.send_deleted_messages_report(chat_id)
+        else:
+            for item in removed:
+                await services.save_deleted_message(item)
 
 
 async def handler(event):
@@ -98,15 +148,9 @@ async def handler(event):
     text = text[1:].strip()
 
     language = core.get_settings().current_language
-    if (
-        language == "ar"
-        and core.is_persian_command(text)
-    ):
+    if language == "ar" and core.is_persian_command(text):
         return
-    if (
-        language == "fa"
-        and core.is_arabic_command(text)
-    ):
+    if language == "fa" and core.is_arabic_command(text):
         return
 
     if text in core.COMMAND_ALIASES["self_on"]:
@@ -260,6 +304,30 @@ async def handler(event):
         await core.edit_response(event, "ذخیره پیام‌های حذف‌شده خاموش شد")
         return
 
+    if text in core.COMMAND_ALIASES["edited_on"]:
+        if core.get_settings().edited_save_enabled:
+            await core.edit_response(
+                event, "گزارش پیام‌های ویرایش‌شده از قبل روشن است."
+            )
+            return
+
+        core.get_settings().edited_save_enabled = True
+        core.save_settings()
+        await core.edit_response(event, "گزارش پیام‌های ویرایش‌شده روشن شد ✅")
+        return
+
+    if text in core.COMMAND_ALIASES["edited_off"]:
+        if not core.get_settings().edited_save_enabled:
+            await core.edit_response(
+                event, "گزارش پیام‌های ویرایش‌شده روشن نیست"
+            )
+            return
+
+        core.get_settings().edited_save_enabled = False
+        core.save_settings()
+        await core.edit_response(event, "گزارش پیام‌های ویرایش‌شده خاموش شد")
+        return
+
     if text in core.COMMAND_ALIASES["timed_on"]:
         if core.get_settings().timed_save_enabled:
             await core.edit_response(event, "ذخیره پیام‌های زمان‌دار از قبل روشن است.")
@@ -281,7 +349,7 @@ async def handler(event):
         return
 
     if text in core.COMMAND_ALIASES["help"]:
-        await ui.show_help(event)
+        await services.send_inline_help_panel(event, text)
         return
 
     if text in core.COMMAND_ALIASES["user_id"]:
@@ -469,6 +537,7 @@ def register_handlers(client=None):
         (cache_messages, events.NewMessage()),
         (enemy_auto_reply_handler, events.NewMessage()),
         (deleted_message_handler, events.MessageDeleted()),
+        (edited_message_handler, events.MessageEdited()),
         (handler, events.NewMessage(outgoing=True)),
     )
     for callback, event_builder in registrations:

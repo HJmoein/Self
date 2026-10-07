@@ -5,8 +5,9 @@ from telethon.tl.types import User
 from . import core
 
 
-async def show_help(event):
-    if core.get_settings().current_language == "ar":
+def help_text(language=None):
+    language = language or core.get_settings().current_language
+    if language == "ar":
         help_text = (
             "╭──────────────╮\n"
             "│ <b>أوامر السلف</b> │\n"
@@ -27,7 +28,9 @@ async def show_help(event):
             "├ <code>.حفظ تلقائي تشغيل</code> حفظ الوسائط المؤقتة\n"
             "├ <code>.حفظ تلقائي إيقاف</code> إيقاف حفظ الوسائط المؤقتة\n"
             "├ <code>.حفظ تلقائي المحذوفات تشغيل</code> حفظ المحذوفات\n"
-            "└ <code>.حفظ تلقائي المحذوفات إيقاف</code> إيقاف حفظ المحذوفات\n\n"
+            "├ <code>.حفظ تلقائي المحذوفات إيقاف</code> إيقاف حفظ المحذوفات\n"
+            "├ <code>.حفظ تلقائي التعديلات تشغيل</code> تقرير التعديلات في الخاص\n"
+            "└ <code>.حفظ تلقائي التعديلات إيقاف</code> إيقاف تقرير التعديلات\n\n"
             "🛠 <b>الأدوات</b>\n"
             "├ <code>.بنغ</code> فحص سرعة الاستجابة\n"
             "├ <code>.معرف</code> معرف المستخدم بالرد\n"
@@ -63,7 +66,9 @@ async def show_help(event):
             "├ <code>.سیو خودکار روشن</code> ذخیره پیام‌های زمان‌دار\n"
             "├ <code>.سیو خودکار خاموش</code> خاموش‌‌کردن ذخیره پیام‌های زمان‌دار\n"
             "├ <code>.سیو خودکار پیام حذف شده روشن</code> فعال‌سازی گزارش حذف\n"
-            "└ <code>.سیو خودکار پیام حذف شده خاموش</code> غیرفعال‌سازی گزارش حذف\n\n"
+            "├ <code>.سیو خودکار پیام حذف شده خاموش</code> غیرفعال‌سازی گزارش حذف\n"
+            "├ <code>.سیو خودکار ویرایش روشن</code> گزارش ویرایش پیام‌های خصوصی\n"
+            "└ <code>.سیو خودکار ویرایش خاموش</code> خاموش‌کردن گزارش ویرایش\n\n"
             "🛠 <b>ابزارها</b>\n"
             "├ <code>.پینگ</code>  بررسی زمان پاسخ\n"
             "├ <code>.آیدی</code>  آیدی فرد با ریپلای\n"
@@ -79,7 +84,11 @@ async def show_help(event):
             "└ <code>.قلب</code> نمایش قلب رنگی متحرک"
         )
 
-    await event.edit(help_text, parse_mode="html")
+    return help_text
+
+
+async def show_help(event):
+    await event.edit(help_text(), parse_mode="html")
 
 
 def weather_comparison_usage(language):
