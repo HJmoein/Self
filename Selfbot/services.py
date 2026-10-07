@@ -3,10 +3,16 @@
 import asyncio
 import base64
 import html
+import math
 import os
 import tempfile
 import time
+from pathlib import Path
 
+import arabic_reshaper
+from bidi.algorithm import get_display
+from PIL import Image, ImageDraw, ImageFont, ImageOps
+from telethon.errors import RPCError
 from telethon.tl.functions.stories import GetStoriesByIDRequest
 from telethon.tl.types import Channel, Chat, User
 
@@ -16,6 +22,9 @@ from . import core
 _inline_help_bot_entity = None
 _inline_help_bot_client = None
 _inline_help_bot_username = None
+MAX_GIF_IMAGE_PIXELS = 40_000_000
+MAX_GIF_TEXT_LENGTH = 160
+MAX_GIF_DIMENSION = 720
 
 
 async def _get_inline_help_bot_entity(client, bot_username):
@@ -42,6 +51,40 @@ async def prepare_inline_help_bot(client=None):
     bot_username = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
     if bot_username:
         await _get_inline_help_bot_entity(client or core.get_client(), bot_username)
+
+
+def inline_help_bot_id():
+    return getattr(_inline_help_bot_entity, "user_id", None)
+
+
+async def inline_panel_control_handler(event):
+    bot_id = inline_help_bot_id()
+    if (
+        bot_id is None
+        or not event.is_private
+        or event.out
+        or event.sender_id != bot_id
+    ):
+        return False
+
+    parts = event.raw_text.strip().split(":")
+    if len(parts) != 3 or parts[0] != "__selfbot_panel_set__":
+        return False
+
+    setting_name, value = parts[1:]
+    if setting_name not in {
+        "timed_save_enabled",
+        "deleted_save_enabled",
+        "edited_save_enabled",
+    } or value not in {"0", "1"}:
+        core.logger.warning("Received an invalid inline panel control message.")
+        await event.delete()
+        return True
+
+    setattr(core.get_settings(), setting_name, value == "1")
+    core.save_settings()
+    await event.delete()
+    return True
 
 
 def message_snapshot(message, sender=None):
@@ -78,6 +121,235 @@ def is_timed_message(message):
         or getattr(media, "ttl_seconds", None)
         or getattr(media_file, "ttl_seconds", None)
     )
+
+
+def _gif_font_path():
+    candidates = (
+        Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "tahoma.ttf",
+        Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "arial.ttf",
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        Path("/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"),
+        Path("/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError("No supported Arabic/Persian font was found.")
+
+
+def _shape_gif_line(text):
+    return get_display(arabic_reshaper.reshape(text))
+
+
+def _wrap_gif_text(draw, text, font, max_width):
+    lines = []
+    for paragraph in text.splitlines() or [text]:
+        words = paragraph.split()
+        if not words:
+            lines.append("")
+            continue
+        current = ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            shaped_candidate = _shape_gif_line(candidate)
+            if current and draw.textlength(shaped_candidate, font=font) > max_width:
+                lines.append(_shape_gif_line(current))
+                current = word
+            else:
+                current = candidate
+        if current:
+            lines.append(_shape_gif_line(current))
+    return lines
+
+
+def _render_photo_gif(image_path, output_path, text):
+    font_path = _gif_font_path()
+    with Image.open(image_path) as source:
+        if source.width * source.height > MAX_GIF_IMAGE_PIXELS:
+            raise ValueError("Image resolution is too large.")
+        image = ImageOps.exif_transpose(source).convert("RGB")
+
+    image.thumbnail(
+        (MAX_GIF_DIMENSION, MAX_GIF_DIMENSION),
+        Image.Resampling.LANCZOS,
+    )
+    width, height = image.size
+    max_text_width = width - 40
+    draw_context = ImageDraw.Draw(image)
+    font = None
+    lines = None
+    spacing = 5
+
+    for font_size in range(42, 17, -2):
+        candidate_font = ImageFont.truetype(font_path, font_size)
+        candidate_lines = _wrap_gif_text(
+            draw_context,
+            text,
+            candidate_font,
+            max_text_width,
+        )
+        line_height = draw_context.textbbox(
+            (0, 0), "آب", font=candidate_font
+        )[3]
+        if (
+            len(candidate_lines) <= 6
+            and (line_height + spacing) * len(candidate_lines) <= height * 0.36
+        ):
+            font = candidate_font
+            lines = candidate_lines
+            break
+
+    if font is None or lines is None:
+        raise ValueError("Text does not fit on the image.")
+
+    line_height = draw_context.textbbox((0, 0), "آب", font=font)[3]
+    padding = max(10, width // 36)
+    text_height = line_height * len(lines) + spacing * (len(lines) - 1)
+    overlay_height = text_height + padding * 2
+    overlay_top = height - overlay_height - padding
+    frames = []
+
+    for frame_index in range(8):
+        scale = 1 + (1 - math.cos(frame_index * math.tau / 8)) * 0.04
+        scaled_size = (round(width * scale), round(height * scale))
+        frame = image.resize(scaled_size, Image.Resampling.LANCZOS)
+        left = (frame.width - width) // 2
+        top = (frame.height - height) // 2
+        frame = frame.crop((left, top, left + width, top + height)).convert("RGBA")
+
+        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        overlay_draw.rounded_rectangle(
+            (
+                padding // 2,
+                overlay_top,
+                width - padding // 2,
+                height - padding // 2,
+            ),
+            radius=max(8, padding // 2),
+            fill=(0, 0, 0, 165),
+        )
+        overlay_draw.multiline_text(
+            (width / 2, overlay_top + padding),
+            "\n".join(lines),
+            font=font,
+            fill="white",
+            anchor="mt",
+            align="center",
+            spacing=spacing,
+            stroke_width=1,
+            stroke_fill="black",
+        )
+        frame.alpha_composite(overlay)
+        frames.append(frame.convert("P", palette=Image.Palette.ADAPTIVE))
+
+    frames[0].save(
+        output_path,
+        format="GIF",
+        save_all=True,
+        append_images=frames[1:],
+        duration=100,
+        loop=0,
+        disposal=2,
+        optimize=True,
+    )
+
+
+async def create_photo_gif(event, photo_message, text):
+    language = core.get_settings().current_language
+    if not text.strip():
+        return (
+            "متن دلخواه را بعد از دستور بنویس؛ مثال: .گیف متن من"
+            if language == "fa"
+            else "اكتب النص بعد الأمر؛ مثال: .تحويل جيف نصي"
+        )
+    if len(text) > MAX_GIF_TEXT_LENGTH:
+        return (
+            f"متن حداکثر می‌تواند {MAX_GIF_TEXT_LENGTH} نویسه باشد."
+            if language == "fa"
+            else f"يجب ألا يتجاوز النص {MAX_GIF_TEXT_LENGTH} حرفًا."
+        )
+
+    media = getattr(photo_message, "media", None)
+    document = getattr(media, "document", None)
+    document_mime_type = getattr(document, "mime_type", None) or ""
+    if getattr(media, "photo", None) is None and not document_mime_type.startswith(
+        "image/"
+    ):
+        return (
+            "روی یک عکس ریپلای کن و دستور را همراه متن بفرست."
+            if language == "fa"
+            else "قم بالرد على صورة وأرسل الأمر مع النص."
+        )
+
+    await core.edit_response(
+        event,
+        "⏳ در حال ساخت GIF..." if language == "fa" else "⏳ جارٍ إنشاء GIF...",
+    )
+    try:
+        with tempfile.TemporaryDirectory(prefix="photo_gif_") as folder:
+            image_path = await core.run_with_floodwait(
+                lambda: core.get_client().download_media(
+                    photo_message,
+                    file=folder,
+                )
+            )
+            if not image_path:
+                return (
+                    "دانلود عکس انجام نشد؛ دوباره تلاش کن."
+                    if language == "fa"
+                    else "تعذّر تنزيل الصورة؛ حاول مرة أخرى."
+                )
+
+            output_path = os.path.join(folder, "captioned.gif")
+            try:
+                await asyncio.to_thread(
+                    _render_photo_gif,
+                    image_path,
+                    output_path,
+                    text.strip(),
+                )
+            except (
+                OSError,
+                Image.DecompressionBombError,
+                ValueError,
+            ) as error:
+                core.logger.warning(
+                    "Could not convert image to GIF: %s",
+                    type(error).__name__,
+                    exc_info=True,
+                )
+                return (
+                    "ساخت GIF انجام نشد؛ عکس معتبر و متن کوتاه‌تری را امتحان کن."
+                    if language == "fa"
+                    else "تعذّر إنشاء GIF؛ جرّب صورة صالحة ونصًا أقصر."
+                )
+
+            await core.run_with_floodwait(
+                lambda: core.get_client().send_file(
+                    event.chat_id,
+                    output_path,
+                    caption=(
+                        "GIF آماده شد ✅"
+                        if language == "fa"
+                        else "تم تجهيز GIF ✅"
+                    ),
+                )
+            )
+    except (OSError, RPCError) as error:
+        core.logger.error(
+            "Could not download or send photo GIF: %s",
+            type(error).__name__,
+            exc_info=True,
+        )
+        return (
+            "دریافت یا ارسال GIF انجام نشد؛ دوباره تلاش کن."
+            if language == "fa"
+            else "تعذّر تنزيل GIF أو إرساله؛ حاول مرة أخرى."
+        )
+
+    return None
 
 
 def timed_message_caption(message, sender=None):
@@ -267,7 +539,10 @@ async def send_inline_help_panel(event, command):
 
     results = await event.client.inline_query(
         bot_entity,
-        command,
+        f"{command} __selfbot_settings__:"
+        f"{int(core.get_settings().timed_save_enabled)}"
+        f"{int(core.get_settings().deleted_save_enabled)}"
+        f"{int(core.get_settings().edited_save_enabled)}",
         entity=destination,
     )
     if not results:

@@ -11,6 +11,7 @@ from telegram import (
     InputTextMessageContent,
     Update,
 )
+from telegram.error import TelegramError
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -26,7 +27,27 @@ logger = logging.getLogger(__name__)
 PANEL_CLOSE_DELAY_SECONDS = 5
 CLOSE_CALLBACK_DATA = "close_inline_panel"
 PAGE_CALLBACK_PREFIX = "panel_page"
+PANEL_SETTINGS_QUERY_PREFIX = "__selfbot_settings__:"
+PANEL_CONTROL_MESSAGE_PREFIX = "__selfbot_panel_set__:"
+PANEL_SETTING_NAMES = (
+    "timed_save_enabled",
+    "deleted_save_enabled",
+    "edited_save_enabled",
+)
 _close_tasks = {}
+
+
+def _query_owner_settings(query_text):
+    parts = query_text.split()
+    if len(parts) < 2 or not parts[1].startswith(PANEL_SETTINGS_QUERY_PREFIX):
+        return None
+
+    encoded = parts[1][len(PANEL_SETTINGS_QUERY_PREFIX):]
+    if len(encoded) != len(PANEL_SETTING_NAMES) or any(
+        bit not in "01" for bit in encoded
+    ):
+        return None
+    return dict(zip(PANEL_SETTING_NAMES, (bit == "1" for bit in encoded)))
 
 PANEL_PAGES = {
     "fa": {
@@ -52,7 +73,7 @@ PANEL_PAGES = {
         ),
         "tools": (
             "ابزارها",
-            "<b>ابزارها</b>\nبررسی پاسخ و دیدن شناسهٔ کاربران و حساب.",
+            "<b>ابزارها</b>\nبررسی پاسخ، شناسه‌ها و ابزار تبدیل عکس به GIF.",
         ),
         "receive": (
             "دریافت",
@@ -90,7 +111,7 @@ PANEL_PAGES = {
         ),
         "tools": (
             "الأدوات",
-            "<b>الأدوات</b>\nفحص الاستجابة وعرض معرّفات المستخدمين والحساب.",
+            "<b>الأدوات</b>\nفحص الاستجابة والمعرّفات وتحويل الصور إلى GIF.",
         ),
         "receive": (
             "الاستلام",
@@ -130,6 +151,7 @@ PANEL_COMMANDS = {
             (".پینگ", "بررسی زمان پاسخ"),
             (".آیدی", "با ریپلای روی پیام کاربر"),
             (".ایدیم", "نمایش شناسهٔ حساب خودت"),
+            (".گیف <متن>", "با ریپلای روی عکس؛ متن روی GIF قرار می‌گیرد"),
         ),
         "receive": (
             (".دریافت", "با ریپلای یا افزودن لینک پیام کانال/گروه"),
@@ -165,6 +187,7 @@ PANEL_COMMANDS = {
             (".بنغ", "فحص زمن الاستجابة"),
             (".معرف", "بالرد على رسالة المستخدم"),
             (".معرفي", "عرض معرّف حسابك"),
+            (".تحويل جيف <نص>", "بالرد على صورة؛ يوضع النص على GIF"),
         ),
         "receive": (
             (".استلام", "بالرد أو بإضافة رابط رسالة القناة/المجموعة"),
@@ -193,7 +216,7 @@ def _home_text(language):
     )
 
 
-def _page_markup(language, page="home"):
+def _page_markup(language, page="home", owner_settings=None):
     pages = PANEL_PAGES[language]
     rows = []
     if page == "home":
@@ -216,7 +239,10 @@ def _page_markup(language, page="home"):
         rows = [buttons[index:index + 2] for index in range(0, len(buttons), 2)]
     else:
         if page == "guardian":
-            settings = core.get_settings()
+            owner_settings = owner_settings or {
+                name: getattr(core.get_settings(), name)
+                for name in PANEL_SETTING_NAMES
+            }
             labels = (
                 (
                     "timed_save_enabled",
@@ -232,7 +258,7 @@ def _page_markup(language, page="home"):
                 ),
             )
             for setting_name, label in labels:
-                enabled = getattr(settings, setting_name)
+                enabled = owner_settings[setting_name]
                 rows.append(
                     [
                         InlineKeyboardButton(
@@ -279,7 +305,12 @@ def _page_text(language, page):
 
 
 def _query_language(query_text, default_language):
-    command = query_text.strip().lstrip(".").strip()
+    parts = query_text.strip().lstrip(".").split(maxsplit=1)
+    command = parts[0] if parts else ""
+    if command in core.PERSIAN_HELP_COMMANDS:
+        return "fa"
+    if command in core.ARABIC_HELP_COMMANDS:
+        return "ar"
     if default_language == "ar" and core.is_persian_command(command):
         return None
     if default_language == "fa" and core.is_arabic_command(command):
@@ -288,9 +319,17 @@ def _query_language(query_text, default_language):
 
 
 def _is_panel_owner(update, context):
-    owner_id = context.application.bot_data.get("owner_id")
+    owner_ids = context.application.bot_data.get("owner_ids", set())
     user = update.effective_user
-    return owner_id is not None and user is not None and user.id == owner_id
+    return user is not None and user.id in owner_ids
+
+
+def _panel_settings_for(context, owner_id):
+    settings_by_owner = context.application.bot_data["panel_settings"]
+    return settings_by_owner.setdefault(
+        owner_id,
+        {name: False for name in PANEL_SETTING_NAMES},
+    )
 
 
 async def inline_query_handler(
@@ -308,6 +347,13 @@ async def inline_query_handler(
     if language is None:
         await query.answer([], cache_time=0, is_personal=True)
         return
+
+    owner_id = update.effective_user.id
+    settings_by_owner = context.application.bot_data["panel_settings"]
+    query_settings = _query_owner_settings(query.query)
+    if query_settings is not None:
+        settings_by_owner[owner_id] = query_settings
+    owner_settings = _panel_settings_for(context, owner_id)
     panel = InlineQueryResultArticle(
         id=f"localized-panel:{language}",
         title="مساعدة" if language == "ar" else "راهنما",
@@ -320,7 +366,10 @@ async def inline_query_handler(
             message_text=_home_text(language),
             parse_mode="HTML",
         ),
-        reply_markup=_page_markup(language),
+        reply_markup=_page_markup(
+            language,
+            owner_settings=owner_settings,
+        ),
     )
     await query.answer([panel], cache_time=0, is_personal=True)
 
@@ -421,7 +470,11 @@ async def panel_page_callback(
     await query.edit_message_text(
         text=_page_text(language, page),
         parse_mode="HTML",
-        reply_markup=_page_markup(language, page),
+        reply_markup=_page_markup(
+            language,
+            page,
+            _panel_settings_for(context, query.from_user.id),
+        ),
     )
     if query.inline_message_id and page != "home":
         _cancel_panel_close(query.inline_message_id)
@@ -449,12 +502,40 @@ async def panel_toggle_callback(
         await query.answer()
         return
 
-    settings = core.get_settings()
-    setattr(settings, setting_name, not getattr(settings, setting_name))
-    core.save_settings()
+    owner_id = query.from_user.id
+    settings_by_owner = context.application.bot_data["panel_settings"]
+    owner_settings = _panel_settings_for(context, owner_id)
+    enabled = not owner_settings[setting_name]
+    try:
+        await context.bot.send_message(
+            chat_id=owner_id,
+            text=(
+                f"{PANEL_CONTROL_MESSAGE_PREFIX}"
+                f"{setting_name}:{int(enabled)}"
+            ),
+        )
+    except TelegramError as error:
+        logger.warning(
+            "Could not send inline panel setting to owner_id=%s: %s",
+            owner_id,
+            type(error).__name__,
+        )
+        await query.answer(
+            "برای فعال‌شدن دکمه‌ها، یک‌بار ربات را در گفتگوی خصوصی Start کن."
+            if language == "fa"
+            else "اضغط Start في المحادثة الخاصة مع البوت لتفعيل الأزرار.",
+            show_alert=True,
+        )
+        return
+
+    owner_settings[setting_name] = enabled
     await query.answer()
     await query.edit_message_reply_markup(
-        reply_markup=_page_markup(language, "guardian")
+        reply_markup=_page_markup(
+            language,
+            "guardian",
+            owner_settings,
+        )
     )
 
 
@@ -483,9 +564,12 @@ async def close_inline_panel_callback(
     )
 
 
-def build_inline_application(token, owner_id):
+def build_inline_application(token, owner_ids):
     application = Application.builder().token(token).build()
-    application.bot_data["owner_id"] = owner_id
+    if isinstance(owner_ids, int):
+        owner_ids = {owner_ids}
+    application.bot_data["owner_ids"] = frozenset(owner_ids)
+    application.bot_data["panel_settings"] = {}
     application.add_handler(InlineQueryHandler(inline_query_handler))
     application.add_handler(
         ChosenInlineResultHandler(chosen_inline_result_handler)

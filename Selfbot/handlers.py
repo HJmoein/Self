@@ -74,6 +74,11 @@ async def edited_message_handler(event):
         cached_messages[cached_index] = updated
 
 
+async def inline_panel_control_handler(event):
+    if await services.inline_panel_control_handler(event):
+        raise events.StopPropagation
+
+
 async def enemy_auto_reply_handler(event):
     """هنگام پیام دادن کاربر مشخص شده به عنوان دشمن، پاسخ خودکار ارسال می‌شود"""
     settings = core.get_settings()
@@ -196,6 +201,28 @@ async def handler(event):
         return
 
     language = core.get_settings().current_language
+    photo_gif_command = next(
+        (
+            command
+            for command in core.COMMAND_ALIASES["photo_gif"]
+            if text == command or text.startswith(command + " ")
+        ),
+        None,
+    )
+    if photo_gif_command is not None:
+        overlay_text = text[len(photo_gif_command):].strip()
+        reply = await event.get_reply_message()
+        error_message = await services.create_photo_gif(
+            event,
+            reply,
+            overlay_text,
+        )
+        if error_message:
+            await core.edit_response(event, error_message)
+        else:
+            await event.delete()
+        return
+
     weather_help_commands = (
         core.PERSIAN_WEATHER_HELP_COMMANDS
         if language == "fa"
@@ -548,12 +575,24 @@ async def handler(event):
 
 def register_handlers(client=None):
     client = client or core.client
-    registrations = (
+    registrations = []
+    inline_bot_id = services.inline_help_bot_id()
+    if inline_bot_id is not None:
+        registrations.append(
+            (
+                inline_panel_control_handler,
+                events.NewMessage(
+                    incoming=True,
+                    from_users=inline_bot_id,
+                ),
+            )
+        )
+    registrations.extend((
         (cache_messages, events.NewMessage()),
         (enemy_auto_reply_handler, events.NewMessage()),
         (deleted_message_handler, events.MessageDeleted()),
         (edited_message_handler, events.MessageEdited()),
         (handler, events.NewMessage(outgoing=True)),
-    )
+    ))
     for callback, event_builder in registrations:
         client.add_event_handler(callback, event_builder)

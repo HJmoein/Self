@@ -269,6 +269,7 @@ COMMAND_ALIASES = {
     "meow_off": ("میو خاموش", "ميو إيقاف"),
     "ping": ("پینگ", "بنغ"),
     "story_reply": ("استوری دانلود", "دانلود استوری", "تحميل قصة", "تنزيل قصة"),
+    "photo_gif": ("گیف", "تحويل جيف"),
     "animation": ("انیمیشن", "قلب", "الب", "القلب", "الانيميشن", "الأنيميشن"),
 }
 PERSIAN_COMMAND_ALIASES = frozenset(
@@ -301,6 +302,7 @@ PERSIAN_COMMAND_ALIASES = frozenset(
         "دانلود استوری",
         "انیمیشن",
         "قلب",
+        COMMAND_ALIASES["photo_gif"][0],
         *PERSIAN_WEATHER_COMMANDS,
         *PERSIAN_WEATHER_COMPARE_COMMANDS,
         *PERSIAN_WEATHER_HELP_COMMANDS,
@@ -336,6 +338,7 @@ ARABIC_COMMAND_ALIASES = frozenset(
         "القلب",
         "الانيميشن",
         "الأنيميشن",
+        COMMAND_ALIASES["photo_gif"][1],
         *ARABIC_WEATHER_COMMANDS,
         *ARABIC_WEATHER_COMPARE_COMMANDS,
         *ARABIC_WEATHER_HELP_COMMANDS,

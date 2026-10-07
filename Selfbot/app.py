@@ -4,8 +4,50 @@ import asyncio
 import os
 
 from telethon.errors import RPCError
+from telegram.error import Conflict
 
 from . import core
+
+
+def _inline_polling_error_handler(updater, error):
+    if not isinstance(error, Conflict):
+        core.logger.error(
+            "Inline bot polling failed: %s",
+            type(error).__name__,
+            exc_info=(type(error), error, error.__traceback__),
+        )
+        return
+
+    core.logger.error(
+        "Inline bot polling stopped because another process is using "
+        "getUpdates for the same BOT_TOKEN. Stop the other bot instance "
+        "or webhook before restarting this Selfbot."
+    )
+    asyncio.create_task(
+        updater.stop(),
+        name="stop-conflicting-inline-polling",
+    )
+
+
+def _inline_owner_ids(current_owner_id):
+    owner_ids = {current_owner_id}
+    configured_owner_ids = os.getenv("BOT_OWNER_IDS", "")
+    for value in configured_owner_ids.split(","):
+        value = value.strip()
+        if not value:
+            continue
+        try:
+            owner_id = int(value)
+        except ValueError as error:
+            raise RuntimeError(
+                "BOT_OWNER_IDS must be a comma-separated list of Telegram user IDs."
+            ) from error
+        if owner_id <= 0:
+            raise RuntimeError(
+                "BOT_OWNER_IDS must contain positive Telegram user IDs."
+            )
+        owner_ids.add(owner_id)
+    return owner_ids
 
 
 async def main():
@@ -40,7 +82,10 @@ async def main():
         owner = await core.client.get_me()
         if owner is None or owner.id is None:
             raise RuntimeError("Could not determine the Selfbot owner account ID.")
-        inline_application = build_inline_application(token, owner.id)
+        inline_application = build_inline_application(
+            token,
+            _inline_owner_ids(owner.id),
+        )
     else:
         core.logger.warning(
             "BOT_TOKEN is not set; inline mode is disabled. "
@@ -60,7 +105,11 @@ async def main():
                     "inline_query",
                     "chosen_inline_result",
                     "callback_query",
-                ]
+                ],
+                error_callback=lambda error: _inline_polling_error_handler(
+                    inline_application.updater,
+                    error,
+                ),
             )
             polling_started = True
             core.logger.info("Inline bot is running.")
@@ -69,7 +118,7 @@ async def main():
         await core.client.run_until_disconnected()
     finally:
         if inline_application is not None:
-            if polling_started:
+            if polling_started and inline_application.updater.running:
                 await inline_application.updater.stop()
             if started:
                 await inline_application.stop()
