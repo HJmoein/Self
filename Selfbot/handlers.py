@@ -11,16 +11,9 @@ from . import core, services, ui, weather
 
 async def cache_messages(event):
     if event.is_private and event.chat_id is not None and event.message is not None:
-        sender = getattr(event.message, "sender", None)
-        if sender is None and event.message.sender_id is not None:
-            try:
-                sender = await event.get_sender()
-            except Exception:
-                sender = None
-
         settings = core.get_settings()
         settings.message_cache[event.chat_id].append(
-            services.message_snapshot(event.message, sender)
+            services.message_snapshot(event.message)
         )
         settings.message_index[event.message.id].add(event.chat_id)
 
@@ -30,7 +23,10 @@ async def cache_messages(event):
             and services.is_timed_message(event.message)
         ):
             asyncio.create_task(
-                services.save_timed_message(event.message, sender)
+                services.save_timed_message(
+                    event.message,
+                    getattr(event.message, "sender", None),
+                )
             )
 
 
@@ -127,6 +123,25 @@ async def deleted_message_handler(event):
 
         if not removed:
             continue
+
+        for item in removed:
+            if (
+                item["sender_id"]
+                and item["sender_name"] == str(item["sender_id"])
+            ):
+                message = item["message"]
+                sender = getattr(message, "sender", None)
+                if sender is None:
+                    try:
+                        sender = await message.get_sender()
+                    except Exception:
+                        core.logger.warning(
+                            "Could not resolve sender for deleted message %s",
+                            item["id"],
+                            exc_info=True,
+                        )
+                if sender is not None:
+                    item.update(services.message_snapshot(message, sender))
 
         settings.deleted_messages[chat_id].extend(removed)
 

@@ -18,7 +18,11 @@ def message_snapshot(message, sender=None):
     first_name = getattr(sender, "first_name", None) or ""
     last_name = getattr(sender, "last_name", None) or ""
     sender_name = f"{first_name} {last_name}".strip()
-    sender_name = sender_name or getattr(sender, "title", None) or "بدون نام"
+    sender_name = (
+        sender_name
+        or getattr(sender, "title", None)
+        or str(message.sender_id or "بدون نام")
+    )
     sender_username = getattr(sender, "username", None)
 
     return {
@@ -69,6 +73,9 @@ async def save_timed_message(message, sender=None):
         return
 
     try:
+        if sender is None and message.sender_id is not None:
+            sender = await message.get_sender()
+
         with tempfile.TemporaryDirectory(prefix="timed_message_") as folder:
             file_path = await core.run_with_floodwait(
                 lambda: core.get_client().download_media(message, file=folder)
